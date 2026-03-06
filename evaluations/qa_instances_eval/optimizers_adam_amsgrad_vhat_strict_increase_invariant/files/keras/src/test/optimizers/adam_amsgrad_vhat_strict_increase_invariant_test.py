@@ -1,0 +1,153 @@
+import numpy as np
+
+from keras.src import backend
+from keras.src import testing
+from keras.src.optimizers.adam import Adam
+
+
+class AdamAmsgradVhatStrictIncreaseInvariantQATest(testing.TestCase):
+    def _run_scenario(self, learning_rate, beta_1, beta_2, epsilon, grad_steps):
+        optimizer = Adam(
+            learning_rate=learning_rate,
+            beta_1=beta_1,
+            beta_2=beta_2,
+            epsilon=epsilon,
+            amsgrad=True,
+        )
+        v1 = backend.Variable(np.array([1.0, -0.5, 0.3], dtype="float32"), name="adam_t_v1")
+        v2 = backend.Variable(np.array([-0.2, 0.7, -1.1], dtype="float32"), name="adam_t_v2")
+
+        for g1, g2 in grad_steps:
+            optimizer.apply([
+                np.array(g1, dtype="float32"),
+                np.array(g2, dtype="float32"),
+            ], [v1, v2])
+
+        return v1, v2
+
+    def test_case_01(self):
+        v1, v2 = self._run_scenario(0.02, 0.85, 0.995, 1e-8, [
+            ([1.0, -0.5, 0.7], [0.5, -0.3, 0.2]),
+            ([0.9, 0.2, -0.6], [-0.4, 0.8, -0.1]),
+            ([1.2, -0.9, 0.4], [0.6, -0.7, 0.3]),
+            ([-0.8, 0.5, -0.2], [-0.1, 0.2, -0.4]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_02(self):
+        v1, v2 = self._run_scenario(0.03, 0.88, 0.998, 1e-6, [
+            ([2.0, -1.0, 1.5], [-1.2, 0.8, -0.6]),
+            ([1.8, 0.5, -1.1], [0.7, -0.9, 1.0]),
+            ([-1.5, 1.2, -0.7], [0.3, 1.1, -0.8]),
+            ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_03(self):
+        v1, v2 = self._run_scenario(0.015, 0.9, 0.99, 1e-8, [
+            ([3.0, -2.0, 1.0], [-2.0, 1.0, -3.0]),
+            ([2.5, -1.5, 0.5], [-1.5, 0.5, -2.5]),
+            ([-2.0, 1.0, -0.5], [1.0, -0.5, 2.0]),
+            ([1.5, -0.8, 0.3], [-0.7, 0.4, -1.1]),
+            ([0.0, 0.0, 0.0], [0.2, -0.2, 0.2]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_04(self):
+        v1, v2 = self._run_scenario(0.012, 0.87, 0.996, 1e-8, [
+            ([0.3, -0.9, 1.2], [1.1, -0.2, 0.6]),
+            ([0.2, -0.8, 1.0], [0.9, -0.1, 0.5]),
+            ([0.1, -0.7, 0.8], [0.7, 0.0, 0.4]),
+            ([0.0, -0.6, 0.6], [0.5, 0.1, 0.3]),
+            ([-0.1, -0.5, 0.4], [0.3, 0.2, 0.2]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_05(self):
+        v1, v2 = self._run_scenario(0.02, 0.89, 0.995, 1e-6, [
+            ([4.0, -3.0, 2.0], [-3.0, 2.0, -1.0]),
+            ([3.5, -2.5, 1.5], [-2.5, 1.5, -0.5]),
+            ([3.0, -2.0, 1.0], [-2.0, 1.0, 0.0]),
+            ([2.5, -1.5, 0.5], [-1.5, 0.5, 0.5]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_06(self):
+        v1, v2 = self._run_scenario(0.013, 0.9, 0.9985, 1e-8, [
+            ([0.9, -0.4, 0.2], [-0.8, 0.3, -0.1]),
+            ([0.7, -0.3, 0.1], [-0.6, 0.2, 0.0]),
+            ([0.5, -0.2, 0.0], [-0.4, 0.1, 0.1]),
+            ([0.3, -0.1, -0.1], [-0.2, 0.0, 0.2]),
+            ([0.1, 0.0, -0.2], [0.0, -0.1, 0.3]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_07(self):
+        v1, v2 = self._run_scenario(0.01, 0.9, 0.99, 1e-7, [
+            ([0.2, 0.2, 0.2], [0.2, 0.2, 0.2]),
+            ([0.2, 0.2, 0.2], [0.2, 0.2, 0.2]),
+            ([0.2, 0.2, 0.2], [0.2, 0.2, 0.2]),
+            ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_08(self):
+        v1, v2 = self._run_scenario(0.008, 0.93, 0.997, 1e-7, [
+            ([0.6, 0.0, -0.6], [0.5, -0.5, 0.5]),
+            ([0.7, -0.1, -0.5], [0.4, -0.4, 0.4]),
+            ([0.5, 0.2, -0.7], [0.3, -0.3, 0.3]),
+            ([0.0, 0.0, 0.0], [0.1, -0.1, 0.1]),
+            ([0.3, -0.2, 0.1], [-0.2, 0.1, -0.1]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_09(self):
+        v1, v2 = self._run_scenario(0.011, 0.86, 0.994, 1e-8, [
+            ([1.5, 1.0, 0.5], [-1.0, -0.5, 0.0]),
+            ([-1.2, -0.8, -0.4], [0.8, 0.4, 0.0]),
+            ([1.0, 0.6, 0.2], [-0.6, -0.2, 0.2]),
+            ([-0.8, -0.4, 0.0], [0.4, 0.0, 0.4]),
+            ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_10(self):
+        v1, v2 = self._run_scenario(0.014, 0.88, 0.992, 1e-8, [
+            ([2.2, -1.8, 1.1], [-1.7, 1.3, -0.9]),
+            ([2.0, -1.6, 0.9], [-1.5, 1.1, -0.7]),
+            ([1.8, -1.4, 0.7], [-1.3, 0.9, -0.5]),
+            ([1.6, -1.2, 0.5], [-1.1, 0.7, -0.3]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_11(self):
+        v1, v2 = self._run_scenario(0.009, 0.91, 0.999, 1e-7, [
+            ([0.05, 0.10, 0.15], [0.20, 0.25, 0.30]),
+            ([0.10, 0.05, 0.00], [0.15, 0.10, 0.05]),
+            ([0.00, -0.05, -0.10], [0.05, 0.00, -0.05]),
+            ([-0.10, -0.15, -0.20], [-0.05, -0.10, -0.15]),
+            ([-0.05, 0.00, 0.05], [0.00, 0.05, 0.10]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
+
+    def test_case_12(self):
+        v1, v2 = self._run_scenario(0.018, 0.84, 0.991, 1e-8, [
+            ([3.2, -2.6, 1.9], [-2.8, 2.1, -1.4]),
+            ([2.9, -2.3, 1.6], [-2.4, 1.7, -1.0]),
+            ([2.6, -2.0, 1.3], [-2.0, 1.3, -0.6]),
+            ([2.3, -1.7, 1.0], [-1.6, 0.9, -0.2]),
+            ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+        ])
+        self.assertEqual(tuple(v1.shape), (3,))
+        self.assertEqual(tuple(v2.shape), (3,))
