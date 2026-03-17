@@ -19,7 +19,7 @@ def _iter_question_kinds(obj: object) -> Iterable[str]:
             yield from _iter_question_kinds(item)
 
 
-def count_question_kinds(root: str | Path = "qa_instances") -> Counter[str]:
+def count_question_kinds(root: str | Path = "qa_instances/Keras") -> Counter[str]:
     root_path = Path(root)
     counter: Counter[str] = Counter()
 
