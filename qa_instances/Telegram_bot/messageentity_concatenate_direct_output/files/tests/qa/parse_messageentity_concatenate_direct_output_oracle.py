@@ -71,7 +71,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "function_output_direct",
+        "question_kind": "program_state_prediction",
         "question": (
             "Use `tests/qa/messageentity_concatenate_direct_output_test.py`, class "
             "`TestMessageEntityConcatenateDirectOutputQA`, method "

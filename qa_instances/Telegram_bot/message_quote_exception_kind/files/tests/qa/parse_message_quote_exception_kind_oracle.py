@@ -52,7 +52,7 @@ def main() -> None:
     output = extract_exception_kind(trace_text)
 
     qa = {
-        "question_kind": "exception_uncaught_kind",
+        "question_kind": "abnormal_behavior_prediction",
         "question": (
             "Use `tests/qa/message_quote_exception_kind_test.py`, class "
             "`TestMessageQuoteExceptionKindQA`, method `test_message_quote_exception_kind_case`. "

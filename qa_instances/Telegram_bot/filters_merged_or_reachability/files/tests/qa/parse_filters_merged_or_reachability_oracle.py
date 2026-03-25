@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_reachability(trace_text)
 
     qa = {
-        "question_kind": "block_reachability_yes_no",
+        "question_kind": "control_flow_prediction",
         "question": (
             "Use `tests/qa/filters_merged_or_reachability_test.py`, class "
             "`TestFiltersMergedOrReachabilityQA`, method "

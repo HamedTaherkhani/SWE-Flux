@@ -61,7 +61,7 @@ def main() -> None:
     holds, counterexample = monotonic_non_decreasing(segments)
 
     qa = {
-        "question_kind": "invariant_property",
+        "question_kind": "invariant_properties",
         "question": (
             "Use `keras/src/test/optimizers/adam_amsgrad_vhat_monotonic_invariant_test.py`, class "
             "`AdamAmsgradVhatMonotonicInvariantQATest`, and all 12 test methods. These tests run Adam with "

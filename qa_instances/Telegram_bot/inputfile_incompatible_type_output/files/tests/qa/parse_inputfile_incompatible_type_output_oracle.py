@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "incompatible_input_type_output_exception",
+        "question_kind": "abnormal_behavior_prediction",
         "question": (
             "Use `tests/qa/inputfile_incompatible_type_output_test.py`, class "
             "`TestInputFileIncompatibleTypeOutputQA`, method "

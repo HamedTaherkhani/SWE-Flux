@@ -63,7 +63,7 @@ def main() -> None:
             break
 
     qa = {
-        "question_kind": "invariant_property",
+        "question_kind": "invariant_properties",
         "question": (
             "Use `keras/src/test/optimizers/adam_v_vs_m2_invariant_test.py`, class "
             "`AdamVVsM2InvariantQATest`, and all 12 test methods. These tests run Adam with `amsgrad=False` "

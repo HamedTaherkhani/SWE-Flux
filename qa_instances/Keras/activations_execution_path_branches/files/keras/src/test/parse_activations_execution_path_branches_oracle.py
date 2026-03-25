@@ -53,7 +53,7 @@ def main() -> None:
     execution_path = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "execution_path",
+        "question_kind": "control_flow_prediction",
         "question": (
             "Use `keras/src/test/activations/activations_execution_path_branches_test.py`, "
             "class `ActivationsExecutionPathBranchesQATest`, method "

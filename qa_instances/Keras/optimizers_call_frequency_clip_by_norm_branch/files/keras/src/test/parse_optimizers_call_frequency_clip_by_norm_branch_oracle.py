@@ -49,7 +49,7 @@ def main() -> None:
     call_count = sum(1 for c in calls if c["func"] == TARGET_FUNCTION)
 
     qa = {
-            "question_kind": "call_frequency",
+            "question_kind": "control_flow_prediction",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_call_frequency_clip_by_norm_branch_test.py`, "
             "class `OptimizersCallFrequencyClipByNormBranchQATest`, method "

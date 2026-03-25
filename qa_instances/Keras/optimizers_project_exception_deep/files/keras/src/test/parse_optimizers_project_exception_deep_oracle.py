@@ -45,7 +45,7 @@ def main() -> None:
     exception_data = extract_project_exception(trace_text)
 
     qa = {
-        "question_kind": "project_raised_exception_signature",
+        "question_kind": "abnormal_behavior_prediction",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_project_exception_deep_test.py`, "
             "class `OptimizersProjectExceptionDeepQATest`, method "

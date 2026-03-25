@@ -50,7 +50,7 @@ def main() -> None:
     output = extract_call_order(trace_text)
 
     qa = {
-        "question_kind": "function_call_order",
+        "question_kind": "control_flow_prediction",
         "question": (
             "Use `tests/qa/replykeyboard_function_call_order_test.py`, class "
             "`TestReplyKeyboardFunctionCallOrderQA`, method "

@@ -36,7 +36,7 @@ def main() -> None:
     values = extract_m_values(trace_text)
 
     qa = {
-        "question_kind": "variable_range",
+        "question_kind": "invariant_properties",
         "question": (
             "Use `keras/src/test/optimizers/adam_m_range_multi_test.py`, class "
             "`AdamMRangeMultiQATest`, and all 12 test methods in this class. "

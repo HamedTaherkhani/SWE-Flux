@@ -39,7 +39,7 @@ def main() -> None:
     clipped_grads = extract_clipped_grads(trace_text)
 
     qa = {
-        "question_kind": "variable_state_after_specific_function_call",
+        "question_kind": "program_state_prediction",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_clip_call_state_test.py`, "
             "class `OptimizersClipCallStateQATest`, method "

@@ -91,7 +91,7 @@ def main() -> None:
             break
 
     qa = {
-        "question_kind": "invariant_property",
+        "question_kind": "invariant_properties",
         "question": (
             "Use `keras/src/test/quantizers/quantizers_scale_range_dynamics_test.py`, "
             "class `QuantizersScaleRangeDynamicsQATest`, and all 12 test methods. "

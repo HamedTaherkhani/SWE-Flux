@@ -55,7 +55,7 @@ def main() -> None:
     output = extract_caught_exception_kinds(trace_text)
 
     qa = {
-        "question_kind": "exceptions_caught_kinds",
+        "question_kind": "abnormal_behavior_prediction",
         "question": (
             "Use `tests/qa/baserequest_caught_exception_kinds_test.py`, class "
             "`TestBaseRequestCaughtExceptionKindsQA`, method "

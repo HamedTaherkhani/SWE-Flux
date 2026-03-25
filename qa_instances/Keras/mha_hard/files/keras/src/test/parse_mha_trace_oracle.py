@@ -39,7 +39,7 @@ def main() -> None:
     oracle_output = extract_outputs_np(trace_text)
 
     qa = {
-        "question_kind": "forward_output_from_fixed_setup",
+        "question_kind": "program_state_prediction",
         "question": (
             "Use `keras/src/test/layers/attention/multi_head_attention_hard_test.py`, "
             "class `MultiHeadAttentionHardTest`, method "

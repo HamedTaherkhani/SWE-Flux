@@ -37,7 +37,7 @@ def main() -> None:
     matching_keys = extract_matching_keys(trace_text)
 
     qa = {
-        "question_kind": "variable_state_after_loop_before_exception_branch",
+        "question_kind": "program_state_prediction",
         "question": (
             "Use `keras/src/test/distribution/distribution_layoutmap_state_test.py`, "
             "class `DistributionLayoutMapStateQATest`, method "

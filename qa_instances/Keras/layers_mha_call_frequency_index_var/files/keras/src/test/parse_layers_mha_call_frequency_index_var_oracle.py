@@ -47,7 +47,7 @@ def main() -> None:
     call_count = sum(1 for c in calls if c["func"] == TARGET_FUNCTION)
 
     qa = {
-        "question_kind": "call_frequency",
+        "question_kind": "control_flow_prediction",
         "question": (
             "Use `keras/src/test/layers/attention/mha_call_frequency_index_var_test.py`, "
             "class `MultiHeadAttentionCallFrequencyIndexVarQATest`, method "

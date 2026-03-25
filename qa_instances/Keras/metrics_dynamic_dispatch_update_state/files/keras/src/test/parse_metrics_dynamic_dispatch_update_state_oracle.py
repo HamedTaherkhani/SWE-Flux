@@ -69,7 +69,7 @@ def main() -> None:
     dispatched = extract_dispatched_update_state(trace_text)
 
     qa = {
-        "question_kind": "dynamic_dispatch",
+        "question_kind": "control_flow_prediction",
         "question": (
             "Use `keras/src/test/metrics/metrics_dynamic_dispatch_update_state_test.py`, "
             "class `MetricsDynamicDispatchUpdateStateQATest`, method "

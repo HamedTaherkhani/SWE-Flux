@@ -145,7 +145,7 @@ def main() -> None:
         }
 
     qa = {
-        "question_kind": "invariant_property",
+        "question_kind": "invariant_properties",
         "question": (
             "Use `keras/src/test/tree/tree_key_iteration_trend_profile_test.py`, class "
             "`TreeKeyIterationTrendProfileQATest`, and all 12 test methods. These tests call "

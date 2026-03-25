@@ -64,7 +64,7 @@ def main() -> None:
     output = extract_state(trace_text)
 
     qa = {
-        "question_kind": "variable_state_after_function_call",
+        "question_kind": "program_state_prediction",
         "question": (
             "Use `tests/qa/callbackquery_dejson_postcall_state_test.py`, class "
             "`TestCallbackQueryPostCallStateQA`, method "

@@ -53,7 +53,7 @@ def main() -> None:
     function_call_order = extract_function_call_order(trace_text)
 
     qa = {
-        "question_kind": "function_call_order",
+        "question_kind": "control_flow_prediction",
         "question": (
             "Use `keras/src/test/activations/activations_function_call_order_test.py`, "
             "class `ActivationsFunctionCallOrderQATest`, method "

@@ -45,7 +45,7 @@ def main() -> None:
     output = extract_max_depth(trace_text)
 
     qa = {
-        "question_kind": "maximum_call_stack_depth",
+        "question_kind": "control_flow_prediction",
         "question": (
             "Use `tests/qa/message_html_max_call_depth_test.py`, class "
             "`TestMessageHtmlMaxCallDepthQA`, method `test_message_html_max_call_depth_case`. "

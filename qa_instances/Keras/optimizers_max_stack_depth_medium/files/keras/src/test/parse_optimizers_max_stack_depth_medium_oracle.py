@@ -42,7 +42,7 @@ def main() -> None:
     max_depth = compute_max_stack_depth(trace_text)
 
     qa = {
-        "question_kind": "max_stack_depth",
+        "question_kind": "control_flow_prediction",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_max_stack_depth_medium_test.py`, "
             "class `OptimizersMaxStackDepthMediumQATest`, method "

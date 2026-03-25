@@ -61,7 +61,7 @@ def main() -> None:
     snapshot = extract_update_state(trace_text)
 
     qa = {
-        "question_kind": "class_variable_state",
+        "question_kind": "program_state_prediction",
         "question": (
             "Use `tests/qa/update_dejson_state_snapshot_test.py`, class "
             "`TestUpdateDejsonStateSnapshotQA`, method `test_update_dejson_state_snapshot_case`. "
