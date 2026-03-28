@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Build a minimal qa_instances_eval dataset for evaluation only.
 
-For each QA instance under qa_instances/, it creates a matching directory in
-qa_instances_eval/ that contains:
+For each repository under qa_instances/ (e.g. Keras, Telegram_bot, Sympy),
+it creates matching repository folders in qa_instances_eval/.
+For each QA instance under that repository, it creates:
 - question.json (oracle.json with oracle_answer removed)
 - files/ with only the instance's test cases and related files
 
-Excluded:
+Excluded instance-level directories:
 - oracle_answer
 - eval.sh
 - parser scripts (parse_*.py)
 - __pycache__ and .pyc files
-- qa_instances/shared and qa_instances/qa_artifacts
+- shared and qa_artifacts
 """
 
 from __future__ import annotations
@@ -63,6 +64,17 @@ def copy_instance_files(src_files: Path, dst_files: Path) -> None:
         shutil.copy2(path, out_path)
 
 
+def iter_repo_instances(src_root: Path):
+    for repo_dir in sorted(p for p in src_root.iterdir() if p.is_dir()):
+        if repo_dir.name in SKIP_DIRS:
+            continue
+        for instance_dir in sorted(p for p in repo_dir.iterdir() if p.is_dir()):
+            if instance_dir.name in SKIP_DIRS:
+                continue
+            if (instance_dir / "oracle.json").exists():
+                yield repo_dir.name, instance_dir
+
+
 def build_eval_instances(src_root: Path, dst_root: Path, overwrite: bool) -> None:
     if dst_root.exists():
         if not overwrite:
@@ -73,18 +85,18 @@ def build_eval_instances(src_root: Path, dst_root: Path, overwrite: bool) -> Non
 
     dst_root.mkdir(parents=True, exist_ok=True)
 
-    for instance_dir in sorted(p for p in src_root.iterdir() if p.is_dir()):
-        if instance_dir.name in SKIP_DIRS:
-            continue
+    copied = 0
+    for repo_name, instance_dir in iter_repo_instances(src_root):
         oracle_path = instance_dir / "oracle.json"
-        if not oracle_path.exists():
-            continue
-
-        out_instance = dst_root / instance_dir.name
+        out_instance = dst_root / repo_name / instance_dir.name
         out_instance.mkdir(parents=True, exist_ok=True)
 
         write_question_json(oracle_path, out_instance / "question.json")
         copy_instance_files(instance_dir / "files", out_instance / "files")
+        copied += 1
+
+    if copied == 0:
+        raise SystemExit(f"No QA instances with oracle.json found under repositories in {src_root}")
 
 
 def main() -> None:

@@ -19,7 +19,7 @@ fi
 
 REPOS=("$@")
 if [[ ${#REPOS[@]} -eq 0 ]]; then
-  REPOS=("Keras" "Telegram_bot")
+  REPOS=("Keras" "Telegram_bot", "Sympy")
 fi
 
 INPUTS=()
