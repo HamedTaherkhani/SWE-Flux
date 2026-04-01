@@ -111,6 +111,7 @@ def tracer(frame, event: str, arg):
     func_match = (not TARGET_FUNCS) or (
         funcname in TARGET_FUNCS
         or any(funcname.startswith(f"{t}.") for t in TARGET_FUNCS)
+        or any(funcname.endswith(f".{t}") for t in TARGET_FUNCS)
     )
 
     if not (file_match and func_match):
