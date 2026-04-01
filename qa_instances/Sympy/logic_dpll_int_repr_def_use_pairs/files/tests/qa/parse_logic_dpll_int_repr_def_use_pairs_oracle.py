@@ -82,7 +82,9 @@ def extract_observed_pairs(
     param_def_line: int,
 ) -> list[dict[str, int | str]]:
     pairs: set[tuple[str, int, int]] = set()
-    last_def: dict[str, int] = {}
+    # Track last definitions per active function frame so recursion does not
+    # leak callee definitions into caller state.
+    frame_stack: list[dict[str, int]] = []
 
     for match in TRACE_RE.finditer(trace_text):
         path = match.group("path")
@@ -94,13 +96,23 @@ def extract_observed_pairs(
             continue
 
         if event == "call":
-            last_def = {
-                var: param_def_line for var in tracked_vars if var in {"clauses", "symbols", "model"}
-            }
+            frame_stack.append(
+                {
+                    var: param_def_line
+                    for var in tracked_vars
+                    if var in {"clauses", "symbols", "model"}
+                }
+            )
+            continue
+
+        if not frame_stack:
             continue
 
         if event in {"return", "exception"}:
+            frame_stack.pop()
             continue
+
+        last_def = frame_stack[-1]
 
         for var in uses_by_line.get(lineno, set()):
             if var in last_def:

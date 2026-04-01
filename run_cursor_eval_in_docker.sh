@@ -11,6 +11,7 @@ Options:
   --repo <name|all>            Repo name from Repositories.json, or "all" (required)
   --num-instances <n>          Max instances per repo (default: all)
   --cursor-api-key <key>       Cursor API key (default: use CURSOR_API_KEY env var)
+  --openai-api-key <key>       Optional OpenAI key input (NOT used by cursor-agent auth)
   --repos-file <path>          Path to repo->image map JSON (default: Repositories.json)
   --instances-root <path>      Host root for eval instances (default: qa_instances_eval)
   --output-root <path>         Host output root (default: evaluations/cursor)
@@ -29,7 +30,7 @@ EOF
 MODEL=""
 REPO_ARG=""
 NUM_INSTANCES="all"
-CURSOR_API_KEY="${CURSOR_API_KEY:-}"
+CURSOR_API_KEY="${CURSOR_API_KEY:-${cursor_api_key:-${cursur_api_key:-}}}"
 REPOS_FILE="Repositories.json"
 INSTANCES_ROOT="qa_instances_eval"
 OUTPUT_ROOT="evaluations/cursor"
@@ -92,6 +93,11 @@ if [[ ! -f "$REPOS_FILE" ]]; then
   exit 1
 fi
 
+if [[ "$NUM_INSTANCES" != "all" ]] && ! [[ "$NUM_INSTANCES" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: --num-instances must be a non-negative integer or 'all'." >&2
+  exit 1
+fi
+
 if ! command -v jq >/dev/null 2>&1; then
   echo "ERROR: jq is required." >&2
   exit 1
@@ -105,11 +111,6 @@ fi
 if ! command -v cursor-agent >/dev/null 2>&1; then
   echo "ERROR: local 'cursor-agent' is required so it can be installed into each container." >&2
   echo "Install it on host first, then rerun." >&2
-  exit 1
-fi
-
-if [[ "$NUM_INSTANCES" != "all" ]] && ! [[ "$NUM_INSTANCES" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: --num-instances must be a non-negative integer or 'all'." >&2
   exit 1
 fi
 

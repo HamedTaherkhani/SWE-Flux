@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Evaluate QA answers against oracle answers for a specific tool/model/repo.
+"""Evaluate QA answers against oracle answers.
 
 Usage:
   python3 evaluate_qa_answers.py --tool cursor --model gpt-5.3-codex-high --repo Sympy
+  python3 evaluate_qa_answers.py --tool cursor --model gpt-5.3-codex-high --repo all
+  python3 evaluate_qa_answers.py --tool llm --vendor openai --model gpt-5.4-2026-03-05 --repo Sympy
+  python3 evaluate_qa_answers.py --all
 """
 
 from __future__ import annotations
@@ -10,7 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,6 +22,31 @@ from typing import Any, Dict, List, Optional, Tuple
 class CompareResult:
     ok: bool
     reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class EvalTarget:
+    tool: str
+    model: str
+    repo: str
+    vendor: Optional[str] = None
+
+    def label(self) -> str:
+        if self.tool.lower() == "llm" and self.vendor:
+            return f"{self.tool}/{self.vendor}/{self.model}/{self.repo}"
+        return f"{self.tool}/{self.model}/{self.repo}"
+
+
+@dataclass
+class EvalStats:
+    total: int = 0
+    correct: int = 0
+    invalid_pred: int = 0
+    missing_pred: int = 0
+    missing_oracle: int = 0
+    per_kind_total: Dict[str, int] = field(default_factory=dict)
+    per_kind_correct: Dict[str, int] = field(default_factory=dict)
+    failed_instances: List[Tuple[str, str, str]] = field(default_factory=list)  # (repo, instance, reason)
 
 
 def load_json(path: Path) -> Any:
@@ -145,61 +173,191 @@ def pct(part: int, whole: int) -> float:
     return 0.0 if whole == 0 else (part / whole) * 100.0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate QA answers against oracles")
-    parser.add_argument("--tool", required=True, help="Tool name under evaluations/ (e.g. cursor)")
-    parser.add_argument("--model", required=True, help="Model name under evaluations/<tool>/")
-    parser.add_argument("--repo", required=True, help="Repository name (e.g. Sympy)")
-    parser.add_argument("--qa-root", default="qa_instances")
-    parser.add_argument("--eval-root", default="evaluations")
-    parser.add_argument("--float-tol", type=float, default=1e-6)
-    args = parser.parse_args()
+def has_instance_dirs(repo_root: Path) -> bool:
+    if not repo_root.exists() or not repo_root.is_dir():
+        return False
+    for p in repo_root.iterdir():
+        if not p.is_dir():
+            continue
+        if (p / "question.json").exists() or (p / "oracle.json").exists():
+            return True
+    return False
 
-    oracle_repo_root = Path(args.qa_root).resolve() / args.repo
-    pred_repo_root = Path(args.eval_root).resolve() / args.tool / args.model / args.repo
 
+def has_prediction_dirs(pred_repo_root: Path) -> bool:
+    if not pred_repo_root.exists() or not pred_repo_root.is_dir():
+        return False
+    for p in pred_repo_root.iterdir():
+        if p.is_dir() and (p / "answer.json").exists():
+            return True
+    return False
+
+
+def discover_repo_names(qa_root: Path) -> List[str]:
+    if not qa_root.exists():
+        return []
+    repos = [p.name for p in qa_root.iterdir() if p.is_dir() and has_instance_dirs(p)]
+    return sorted(repos)
+
+
+def discover_instance_names(qa_repo_root: Path, pred_repo_root: Path) -> List[str]:
+    names = set()
+
+    if qa_repo_root.exists():
+        for p in qa_repo_root.iterdir():
+            if not p.is_dir():
+                continue
+            # qa_instances_eval instances generally contain question.json (no oracle.json).
+            if (p / "question.json").exists() or (p / "oracle.json").exists():
+                names.add(p.name)
+
+    if pred_repo_root.exists():
+        for p in pred_repo_root.iterdir():
+            if p.is_dir() and (p / "answer.json").exists():
+                names.add(p.name)
+
+    return sorted(names)
+
+
+def strict_oracle_path(repo: str, instance: str) -> Path:
+    return Path("qa_instances").resolve() / repo / instance / "oracle.json"
+
+
+def resolve_prediction_root(eval_root: Path, tool: str, model: str, repo: str, vendor: Optional[str]) -> Path:
+    # New layout for host LLM runs: evaluations/llm/<vendor>/<model>/<repo>
+    if tool.lower() == "llm":
+        if vendor:
+            return eval_root / "llm" / vendor.lower() / model / repo
+
+        # Best-effort fallback: auto-detect vendor if omitted.
+        llm_root = eval_root / "llm"
+        if llm_root.exists():
+            candidates = sorted(
+                p / model / repo
+                for p in llm_root.iterdir()
+                if p.is_dir() and (p / model / repo).exists()
+            )
+            if len(candidates) == 1:
+                return candidates[0]
+            if len(candidates) > 1:
+                matches = ", ".join(str(p.parent.name) for p in candidates)
+                raise SystemExit(
+                    f"Multiple vendors match model/repo under {llm_root}: {matches}. "
+                    "Please pass --vendor."
+                )
+        raise SystemExit("For --tool llm, pass --vendor (e.g. --vendor openai).")
+
+    # Legacy layout for existing non-LLM tools.
+    return eval_root / tool / model / repo
+
+
+def discover_all_targets(eval_root: Path) -> List[EvalTarget]:
+    targets: List[EvalTarget] = []
+    if not eval_root.exists():
+        return targets
+
+    for tool_dir in sorted(p for p in eval_root.iterdir() if p.is_dir()):
+        tool = tool_dir.name
+        if tool.lower() == "llm":
+            for vendor_dir in sorted(p for p in tool_dir.iterdir() if p.is_dir()):
+                for model_dir in sorted(p for p in vendor_dir.iterdir() if p.is_dir()):
+                    for repo_dir in sorted(p for p in model_dir.iterdir() if p.is_dir()):
+                        if has_prediction_dirs(repo_dir):
+                            targets.append(
+                                EvalTarget(
+                                    tool="llm",
+                                    vendor=vendor_dir.name.lower(),
+                                    model=model_dir.name,
+                                    repo=repo_dir.name,
+                                )
+                            )
+            continue
+
+        for model_dir in sorted(p for p in tool_dir.iterdir() if p.is_dir()):
+            for repo_dir in sorted(p for p in model_dir.iterdir() if p.is_dir()):
+                if has_prediction_dirs(repo_dir):
+                    targets.append(
+                        EvalTarget(
+                            tool=tool,
+                            model=model_dir.name,
+                            repo=repo_dir.name,
+                        )
+                    )
+
+    return targets
+
+
+def merge_stats(dst: EvalStats, src: EvalStats) -> None:
+    dst.total += src.total
+    dst.correct += src.correct
+    dst.invalid_pred += src.invalid_pred
+    dst.missing_pred += src.missing_pred
+    dst.missing_oracle += src.missing_oracle
+    for kind, val in src.per_kind_total.items():
+        dst.per_kind_total[kind] = dst.per_kind_total.get(kind, 0) + val
+    for kind, val in src.per_kind_correct.items():
+        dst.per_kind_correct[kind] = dst.per_kind_correct.get(kind, 0) + val
+    dst.failed_instances.extend(src.failed_instances)
+
+
+def evaluate_target(
+    *,
+    target: EvalTarget,
+    qa_root: Path,
+    eval_root: Path,
+    float_tol: float,
+    require_prediction_root: bool,
+) -> EvalStats:
+    qa_repo_root = qa_root / target.repo
+    oracle_repo_root = Path("qa_instances").resolve() / target.repo
+    pred_repo_root = resolve_prediction_root(
+        eval_root=eval_root,
+        tool=target.tool,
+        model=target.model,
+        repo=target.repo,
+        vendor=target.vendor,
+    )
+
+    if not qa_repo_root.exists():
+        raise SystemExit(f"QA repo directory not found: {qa_repo_root}")
     if not oracle_repo_root.exists():
         raise SystemExit(f"Oracle repo directory not found: {oracle_repo_root}")
-    if not pred_repo_root.exists():
+    if require_prediction_root and not pred_repo_root.exists():
         raise SystemExit(f"Prediction repo directory not found: {pred_repo_root}")
 
-    instance_dirs = sorted(p for p in oracle_repo_root.iterdir() if p.is_dir())
-    oracle_instances: List[Path] = [p for p in instance_dirs if (p / "oracle.json").exists()]
+    instance_names = discover_instance_names(qa_repo_root, pred_repo_root)
 
-    total = len(oracle_instances)
-    correct = 0
-    invalid_pred = 0
-    missing_pred = 0
-    per_kind_total: Dict[str, int] = {}
-    per_kind_correct: Dict[str, int] = {}
-    failed_instances: List[Tuple[str, str]] = []
-
-    for instance_dir in oracle_instances:
-        instance = instance_dir.name
-        oracle_path = instance_dir / "oracle.json"
+    stats = EvalStats(total=len(instance_names))
+    for instance in instance_names:
+        oracle_path = strict_oracle_path(target.repo, instance)
         pred_path = pred_repo_root / instance / "answer.json"
+
+        if not oracle_path.exists():
+            stats.missing_oracle += 1
+            stats.failed_instances.append((target.repo, instance, "missing_oracle_json"))
+            continue
 
         try:
             oracle = load_json(oracle_path)
         except Exception as exc:
-            failed_instances.append((instance, f"invalid_oracle_json: {exc}"))
+            stats.failed_instances.append((target.repo, instance, f"invalid_oracle_json: {exc}"))
             continue
 
         kind = str(oracle.get("question_kind", "unknown"))
-        per_kind_total[kind] = per_kind_total.get(kind, 0) + 1
+        stats.per_kind_total[kind] = stats.per_kind_total.get(kind, 0) + 1
         oracle_answer = oracle.get("oracle_answer")
 
         if not pred_path.exists():
-            missing_pred += 1
-            failed_instances.append((instance, "missing_answer_json"))
+            stats.missing_pred += 1
+            stats.failed_instances.append((target.repo, instance, "missing_answer_json"))
             continue
 
         try:
             pred_raw = load_json(pred_path)
             pred_answer = pick_answer_payload(pred_raw)
         except Exception as exc:
-            invalid_pred += 1
-            failed_instances.append((instance, f"invalid_pred_json: {exc}"))
+            stats.invalid_pred += 1
+            stats.failed_instances.append((target.repo, instance, f"invalid_pred_json: {exc}"))
             continue
 
         cmp_res = compare_values(
@@ -207,37 +365,182 @@ def main() -> None:
             pred=pred_answer,
             key_name="root",
             path="$",
-            float_tol=args.float_tol,
+            float_tol=float_tol,
         )
         if cmp_res.ok:
-            correct += 1
-            per_kind_correct[kind] = per_kind_correct.get(kind, 0) + 1
+            stats.correct += 1
+            stats.per_kind_correct[kind] = stats.per_kind_correct.get(kind, 0) + 1
         else:
-            failed_instances.append((instance, cmp_res.reason or "mismatch"))
+            stats.failed_instances.append((target.repo, instance, cmp_res.reason or "mismatch"))
 
+    return stats
+
+
+def print_summary(scope_lines: List[str], stats: EvalStats) -> None:
     print("Summary")
-    print(f"tool: {args.tool}")
-    print(f"model: {args.model}")
-    print(f"repo: {args.repo}")
-    print(f"oracle_root: {oracle_repo_root}")
-    print(f"prediction_root: {pred_repo_root}")
-    print(f"total_instances: {total}")
-    print(f"overall_accuracy: {pct(correct, total):.2f}% ({correct}/{total})")
-    print(f"missing_predictions: {missing_pred}")
-    print(f"invalid_predictions: {invalid_pred}")
+    for line in scope_lines:
+        print(line)
+    print(f"total_instances: {stats.total}")
+    print(f"overall_accuracy: {pct(stats.correct, stats.total):.2f}% ({stats.correct}/{stats.total})")
+    print(f"missing_predictions: {stats.missing_pred}")
+    print(f"missing_oracles: {stats.missing_oracle}")
+    print(f"invalid_predictions: {stats.invalid_pred}")
 
+
+def print_per_kind_accuracy(stats: EvalStats) -> None:
     print("\nPer-kind accuracy")
-    for kind in sorted(per_kind_total.keys()):
-        k_total = per_kind_total[kind]
-        k_correct = per_kind_correct.get(kind, 0)
+    if not stats.per_kind_total:
+        print("none")
+        return
+    for kind in sorted(stats.per_kind_total.keys()):
+        k_total = stats.per_kind_total[kind]
+        k_correct = stats.per_kind_correct.get(kind, 0)
         print(f"{kind}: {pct(k_correct, k_total):.2f}% ({k_correct}/{k_total})")
 
+
+def print_failed_instances(stats: EvalStats, single_repo: Optional[str]) -> None:
     print("\nFailed instances")
-    if not failed_instances:
+    if not stats.failed_instances:
         print("none")
-    else:
-        for instance, reason in sorted(failed_instances, key=lambda x: x[0]):
+        return
+    for repo, instance, reason in sorted(stats.failed_instances, key=lambda x: (x[0], x[1])):
+        if single_repo and repo == single_repo:
             print(f"- {instance}: {reason}")
+        else:
+            print(f"- {repo}/{instance}: {reason}")
+
+
+def print_target_accuracies(title: str, results: List[Tuple[EvalTarget, EvalStats]], repo_only: bool = False) -> None:
+    print(f"\n{title}")
+    if not results:
+        print("none")
+        return
+    for target, stats in sorted(results, key=lambda x: x[0].label()):
+        label = target.repo if repo_only else target.label()
+        print(f"{label}: {pct(stats.correct, stats.total):.2f}% ({stats.correct}/{stats.total})")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Evaluate QA answers against oracles")
+    parser.add_argument("--tool", help="Tool name under evaluations/ (e.g. cursor)")
+    parser.add_argument(
+        "--vendor",
+        default=None,
+        help="Vendor name for --tool llm (e.g. openai, gemini, anthropic)",
+    )
+    parser.add_argument("--model", help="Model name under evaluations/<tool>/")
+    parser.add_argument("--repo", help="Repository name (e.g. Sympy) or 'all'")
+    parser.add_argument("--all", action="store_true", help="Aggregate all available results across all tools/vendors/models/repos.")
+    parser.add_argument("--qa-root", default="qa_instances")
+    parser.add_argument("--eval-root", default="evaluations")
+    parser.add_argument("--float-tol", type=float, default=1e-6)
+    args = parser.parse_args()
+
+    qa_root = Path(args.qa_root).resolve()
+    eval_root = Path(args.eval_root).resolve()
+    vendor = args.vendor.lower() if args.vendor else None
+
+    if args.all and any([args.tool, args.vendor, args.model, args.repo]):
+        parser.error("--all cannot be combined with --tool/--vendor/--model/--repo.")
+
+    if args.all:
+        targets = discover_all_targets(eval_root)
+        if not targets:
+            raise SystemExit(f"No evaluation targets found under {eval_root}")
+
+        results: List[Tuple[EvalTarget, EvalStats]] = []
+        skipped: List[Tuple[EvalTarget, str]] = []
+        aggregate = EvalStats()
+
+        for target in targets:
+            try:
+                stats = evaluate_target(
+                    target=target,
+                    qa_root=qa_root,
+                    eval_root=eval_root,
+                    float_tol=args.float_tol,
+                    require_prediction_root=True,
+                )
+                results.append((target, stats))
+                merge_stats(aggregate, stats)
+            except SystemExit as exc:
+                skipped.append((target, str(exc)))
+
+        print_summary(
+            scope_lines=[
+                "scope: all",
+                f"targets_evaluated: {len(results)}",
+                f"targets_skipped: {len(skipped)}",
+            ],
+            stats=aggregate,
+        )
+        print_target_accuracies("Per-target accuracy", results, repo_only=False)
+        print_per_kind_accuracy(aggregate)
+        print_failed_instances(aggregate, single_repo=None)
+
+        if skipped:
+            print("\nSkipped targets")
+            for target, reason in sorted(skipped, key=lambda x: x[0].label()):
+                print(f"- {target.label()}: {reason}")
+        return
+
+    if not args.tool or not args.model or not args.repo:
+        parser.error("When --all is not set, --tool, --model, and --repo are required.")
+
+    if args.repo.lower() == "all":
+        if args.tool.lower() == "llm" and not vendor:
+            parser.error("For --tool llm with --repo all, pass --vendor.")
+
+        repos = discover_repo_names(qa_root)
+        if not repos:
+            raise SystemExit(f"No repositories found under {qa_root}")
+
+        results: List[Tuple[EvalTarget, EvalStats]] = []
+        aggregate = EvalStats()
+        for repo in repos:
+            target = EvalTarget(tool=args.tool, vendor=vendor, model=args.model, repo=repo)
+            stats = evaluate_target(
+                target=target,
+                qa_root=qa_root,
+                eval_root=eval_root,
+                float_tol=args.float_tol,
+                require_prediction_root=False,
+            )
+            results.append((target, stats))
+            merge_stats(aggregate, stats)
+
+        summary_lines = [f"tool: {args.tool}"]
+        if vendor:
+            summary_lines.append(f"vendor: {vendor}")
+        summary_lines.extend(
+            [
+                f"model: {args.model}",
+                "repo: all",
+                f"repos_evaluated: {len(results)}",
+            ]
+        )
+        print_summary(scope_lines=summary_lines, stats=aggregate)
+        print_target_accuracies("Per-repo accuracy", results, repo_only=True)
+        print_per_kind_accuracy(aggregate)
+        print_failed_instances(aggregate, single_repo=None)
+        return
+
+    target = EvalTarget(tool=args.tool, vendor=vendor, model=args.model, repo=args.repo)
+    stats = evaluate_target(
+        target=target,
+        qa_root=qa_root,
+        eval_root=eval_root,
+        float_tol=args.float_tol,
+        require_prediction_root=True,
+    )
+
+    summary_lines = [f"tool: {args.tool}"]
+    if vendor:
+        summary_lines.append(f"vendor: {vendor}")
+    summary_lines.extend([f"model: {args.model}", f"repo: {args.repo}"])
+    print_summary(scope_lines=summary_lines, stats=stats)
+    print_per_kind_accuracy(stats)
+    print_failed_instances(stats, single_repo=args.repo)
 
 
 if __name__ == "__main__":
