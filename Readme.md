@@ -10,12 +10,13 @@ pip install -r requirements.txt
 
 ## Evaluation Runners
 
-This repo has two separate evaluation flows:
+This repo has three separate evaluation flows:
 
 1. Cursor CLI in Docker (`run_cursor_eval_in_docker.sh`)
-2. LLM + RepoMap host runner (`run_llm_repomap_eval_host.py`)
+2. SWE-Agent / mini-SWE-Agent in Docker (`run_swe_agent_eval_in_docker.sh`)
+3. LLM + RepoMap host runner (`run_llm_repomap_eval_host.py`)
 
-They are independent. `run_cursor_eval_in_docker.sh` does not run RepoMap.
+They are independent.
 
 ## Cursor Evaluation (Docker)
 
@@ -72,6 +73,77 @@ Optional:
 ./run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Sympy
 ./run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo all --num-instances 10
 ./run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Keras --cursor-api-key "$CURSOR_API_KEY"
+```
+
+## SWE-Agent / mini-SWE-Agent Evaluation (Docker)
+
+Script: `run_swe_agent_eval_in_docker.sh`
+
+This flow runs either SWE-Agent or mini-SWE-Agent inside each benchmark container.
+
+### Prerequisites
+
+- Docker installed and running
+- `jq` installed
+- `Repositories.json` configured (repo -> image mapping)
+
+### API keys
+
+Set only the key(s) needed by your selected model/provider:
+
+- OpenAI: `OPENAI_API_KEY`
+- Anthropic: `ANTHROPIC_API_KEY`
+- Gemini: `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+- OpenRouter: `OPENROUTER_API_KEY`
+
+Example:
+
+```bash
+export OPENAI_API_KEY="your_openai_key"
+# or:
+export ANTHROPIC_API_KEY="your_anthropic_key"
+export GEMINI_API_KEY="your_gemini_key"
+export OPENROUTER_API_KEY="your_openrouter_key"
+```
+
+### Usage
+
+```bash
+./run_swe_agent_eval_in_docker.sh \
+  --agent <swe-agent|mini-swe-agent> \
+  --model <model_name> \
+  --repo <repo_name|all> \
+  [options]
+```
+
+Required:
+- `--agent` choose `swe-agent` or `mini-swe-agent`
+- `--model` model name for the selected agent (example: `openai/gpt-5.4`)
+- `--repo` one repo key in `Repositories.json`, or `all`
+
+Optional:
+- `--num-instances <n>` max instances per repo (default: `all`)
+- `--agent-extra-args "<args>"` extra args forwarded to selected agent CLI
+- `--repos-file <path>` default `Repositories.json`
+- `--instances-root <path>` default `qa_instances_eval`
+- `--output-root <path>` default `evaluations`
+- `--container-workdir <path>` default `/testbed`
+- `--openai-api-key <key>`, `--anthropic-api-key <key>`, `--google-api-key <key>`, `--gemini-api-key <key>`, `--openrouter-api-key <key>`
+- `--no-auto-install` disable automatic agent installation in container
+
+### Output layout
+
+- `evaluations/swe-agent/<model>/<repo>/<instance>/answer.json`
+- `evaluations/swe-agent/<model>/<repo>/<instance>/sweagent.log`
+- `evaluations/mini-swe-agent/<model>/<repo>/<instance>/answer.json`
+- `evaluations/mini-swe-agent/<model>/<repo>/<instance>/mini.log`
+
+### Examples
+
+```bash
+./run_swe_agent_eval_in_docker.sh --agent mini-swe-agent --model openai/gpt-5.4 --repo Sympy
+./run_swe_agent_eval_in_docker.sh --agent swe-agent --model openai/gpt-5.4 --repo all --num-instances 10
+./run_swe_agent_eval_in_docker.sh --agent mini-swe-agent --model openai/gpt-5.4 --repo Keras --openai-api-key "$OPENAI_API_KEY"
 ```
 
 ## LLM + RepoMap Evaluation (Host-only, Read-only)
@@ -155,6 +227,24 @@ python3 evaluate_qa_answers.py \
 python3 evaluate_qa_answers.py \
   --tool cursor \
   --model gpt-5.3-codex-high \
+  --repo Sympy \
+  --qa-root qa_instances_eval \
+  --eval-root evaluations
+```
+
+```bash
+python3 evaluate_qa_answers.py \
+  --tool swe-agent \
+  --model openai_gpt-5.4 \
+  --repo Sympy \
+  --qa-root qa_instances_eval \
+  --eval-root evaluations
+```
+
+```bash
+python3 evaluate_qa_answers.py \
+  --tool mini-swe-agent \
+  --model openai_gpt-5.4 \
   --repo Sympy \
   --qa-root qa_instances_eval \
   --eval-root evaluations

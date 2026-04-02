@@ -35,6 +35,21 @@ class DefUseVisitor(ast.NodeVisitor):
             self.defs[node.lineno].add(node.id)
         self.generic_visit(node)
 
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        # "from x import y as z" defines the local binding z (or y if no alias).
+        for alias in node.names:
+            bound = alias.asname if alias.asname else alias.name.split(".")[0]
+            if bound != "*":
+                self.defs[node.lineno].add(bound)
+        self.generic_visit(node)
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        # "import x as y" defines the local binding y (or top-level x name).
+        for alias in node.names:
+            bound = alias.asname if alias.asname else alias.name.split(".")[0]
+            self.defs[node.lineno].add(bound)
+        self.generic_visit(node)
+
 
 def get_target_function_node(module: ast.Module) -> ast.FunctionDef:
     for node in module.body:

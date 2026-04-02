@@ -31,14 +31,6 @@ EVENT_RE = re.compile(
 )
 
 
-def _load_condition_texts() -> dict[int, str]:
-    source = Path(TARGET_PATH).read_text(encoding="utf-8").splitlines()
-    out: dict[int, str] = {}
-    for line_no, _true_line in CONDITION_SPECS:
-        out[line_no] = source[line_no - 1].strip()
-    return out
-
-
 def _extract_top_level_call_lines(trace_text: str) -> list[list[int]]:
     depth = 0
     current: list[int] = []
@@ -86,7 +78,6 @@ def _condition_outcomes_in_call(lines: list[int], cond_line: int, true_line: int
 
 def extract_condition_branches(trace_text: str) -> list[dict[str, object]]:
     calls = _extract_top_level_call_lines(trace_text)
-    cond_text = _load_condition_texts()
 
     answer: list[dict[str, object]] = []
     for cond_line, true_line in CONDITION_SPECS:
@@ -102,7 +93,6 @@ def extract_condition_branches(trace_text: str) -> list[dict[str, object]]:
         answer.append(
             {
                 "line": cond_line,
-                "condition": cond_text[cond_line],
                 "branches_executed": ordered,
             }
         )
@@ -147,8 +137,7 @@ def main() -> None:
             "different evaluations of the same line, include both values. "
             "Return a JSON object with key `condition_branches` whose value is an array of "
             "objects in ascending line-number order, each object using this exact schema: "
-            "`{\"line\": <int>, \"condition\": <exact condition source text>, "
-            "\"branches_executed\": [\"false\" and/or \"true\"]}`. "
+            "`{\"line\": <int>, \"branches_executed\": [\"false\" and/or \"true\"]}`. "
             "Include only condition lines that were evaluated at least once."
         ),
         "template_answer": {

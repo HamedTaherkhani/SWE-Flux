@@ -10,9 +10,11 @@ Usage:
 
 from __future__ import annotations
 
+import ast
 import argparse
 import json
 import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -98,16 +100,70 @@ def normalize_identifier(s: str, key_name: str) -> List[str]:
     return list(vals)
 
 
-def compare_strings(expected: str, pred: str, key_name: str) -> bool:
+ALT_SEPARATOR = "|||"
+
+
+def _is_alt_string(s: str) -> bool:
+    if ALT_SEPARATOR not in s:
+        return False
+    parts = [p.strip() for p in s.split(ALT_SEPARATOR)]
+    return len(parts) >= 2 and all(part != "" for part in parts)
+
+
+def _enum_canonical(s: str) -> str:
+    token = s.strip()
+    if token.startswith("<") and token.endswith(">") and len(token) > 2:
+        token = token[1:-1].strip()
+    if "." in token:
+        token = token.split(".")[-1]
+    return token.upper()
+
+
+def _compare_string_single(expected: str, pred: str, key_name: str) -> bool:
     if expected == pred:
         return True
+
     e_norm = normalize_identifier(expected, key_name)
     p_norm = normalize_identifier(pred, key_name)
-    return any(a == b for a in e_norm for b in p_norm)
+    if any(a == b for a in e_norm for b in p_norm):
+        return True
+
+    if key_name.lower() in {"type", "status"}:
+        return _enum_canonical(expected) == _enum_canonical(pred)
+
+    return False
+
+
+def compare_strings(expected: str, pred: str, key_name: str) -> bool:
+    if _compare_string_single(expected, pred, key_name):
+        return True
+    if _is_alt_string(expected):
+        return any(_compare_string_single(alt.strip(), pred, key_name) for alt in expected.split(ALT_SEPARATOR))
+    return False
 
 
 def is_number(x: Any) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+_MAPPINGPROXY_RE = re.compile(r"^mappingproxy\((.*)\)$", re.DOTALL)
+
+
+def normalize_special_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    text = value.strip()
+    match = _MAPPINGPROXY_RE.fullmatch(text)
+    if not match:
+        return value
+
+    inner = match.group(1).strip()
+    try:
+        parsed = ast.literal_eval(inner)
+    except Exception:
+        return value
+    return parsed if isinstance(parsed, dict) else value
 
 
 def compare_values(
@@ -118,6 +174,9 @@ def compare_values(
     path: str,
     float_tol: float,
 ) -> CompareResult:
+    expected = normalize_special_value(expected)
+    pred = normalize_special_value(pred)
+
     if is_number(expected) and is_number(pred):
         if math.isclose(float(expected), float(pred), rel_tol=float_tol, abs_tol=float_tol):
             return CompareResult(True)
