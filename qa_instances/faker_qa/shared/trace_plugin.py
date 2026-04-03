@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+"""Pytest sys.settrace helper for faker_qa instances (staged as /testbed/trace_plugin.py)."""
+
 import os
 import sys
 import threading
 from datetime import datetime
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default))
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+
 
 TARGET_FILE_SUBSTR = os.environ.get("TRACE_FILE", "").strip().replace("\\", "/")
 _raw_funcs = os.environ.get("TRACE_FUNC", "").strip()
@@ -11,9 +22,11 @@ TARGET_FUNCS = {f.strip() for f in _raw_funcs.split(",") if f.strip()}
 TRACE_EVENTS = {
     e.strip() for e in os.environ.get("TRACE_EVENTS", "line").split(",") if e.strip()
 }
+if not TRACE_EVENTS:
+    TRACE_EVENTS = {"line"}
 TRACE_OUT = os.environ.get("TRACE_OUT", "").strip() or None
-TRACE_LIMIT = int(os.environ.get("TRACE_LIMIT", "500"))
-TRACE_MAXLOCALS = int(os.environ.get("TRACE_MAXLOCALS", "200"))
+TRACE_LIMIT = _int_env("TRACE_LIMIT", 500)
+TRACE_MAXLOCALS = _int_env("TRACE_MAXLOCALS", 200)
 NO_UNDERSCORE = os.environ.get("TRACE_NO_UNDERSCORE", "1").strip() != "0"
 WITH_TIME = os.environ.get("TRACE_TIME", "1").strip() == "1"
 LOG_ALL_LINES = os.environ.get("TRACE_LOG_ALL_LINES", "0").strip() == "1"
@@ -23,7 +36,7 @@ _lock = threading.Lock()
 _fh = None
 _enabled = False
 _open_error = None
-_last_locals = {}
+_last_locals: dict[int, dict] = {}
 
 
 def _timestamp() -> str:
@@ -112,6 +125,10 @@ def tracer(frame, event: str, arg):
         funcname in TARGET_FUNCS
         or any(funcname.startswith(f"{t}.") for t in TARGET_FUNCS)
         or any(funcname.endswith(f".{t}") for t in TARGET_FUNCS)
+        or any(
+            (t == funcname.rpartition(".")[2]) or (t == funcname)
+            for t in TARGET_FUNCS
+        )
     )
 
     if not (file_match and func_match):
@@ -174,9 +191,10 @@ def enable() -> None:
 
 
 def disable() -> None:
-    global _fh, _enabled
+    global _fh, _enabled, _open_error
     sys.settrace(None)
     _enabled = False
+    _last_locals.clear()
     with _lock:
         if _fh is not None:
             try:
@@ -184,3 +202,4 @@ def disable() -> None:
             finally:
                 _fh.close()
                 _fh = None
+        _open_error = None
