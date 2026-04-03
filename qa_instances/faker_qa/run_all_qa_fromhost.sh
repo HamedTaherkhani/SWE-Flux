@@ -2,10 +2,11 @@
 set -euo pipefail
 
 # Run all QA instances from host (outside Docker), one by one.
-# This script expects to live inside faker_qa/.
+# This script lives in ./faker_qa (e.g. qa_instances/faker_qa). Oracles and logs land under ./qa_artifacts.
 
 QA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$QA_DIR/run_qa_fromhost.sh"
+ARTIFACTS_DIR="$QA_DIR/qa_artifacts"
 
 if [[ ! -x "$RUNNER" ]]; then
   echo "ERROR: Missing executable runner: $RUNNER"
@@ -39,9 +40,9 @@ done
 for inst in "${INSTANCES[@]}"; do
   echo
   echo "===== RUNNING INSTANCE: $inst ====="
-  HOST_QA_DIR="$QA_DIR" "$RUNNER" "$inst"
+  HOST_QA_DIR="$QA_DIR" HOST_OUTPUT_DIR="$ARTIFACTS_DIR" "$RUNNER" "$inst"
 done
 
 echo
 echo "All QA instances completed."
-echo "Artifacts root: $QA_DIR/qa_artifacts"
+echo "Artifacts root: $ARTIFACTS_DIR"

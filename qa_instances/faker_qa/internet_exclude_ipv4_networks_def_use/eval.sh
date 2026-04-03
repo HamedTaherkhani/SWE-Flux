@@ -6,7 +6,7 @@ ROOT_DIR="${1:-/testbed}"
 export PYTHONPATH="$ROOT_DIR:$ROOT_DIR/faker_qa/shared/files"
 INSTANCE_ID="internet_exclude_ipv4_networks_def_use"
 TEST_ID="faker_qa/internet_exclude_ipv4_networks_def_use/files/testcase.py::TestInternetExcludeIpv4NetworksDefUseQA::test_exclude_ipv4_networks_def_use_case"
-LOG_DIR="$ROOT_DIR/logs/qa_instances/$INSTANCE_ID"
+LOG_DIR="$ROOT_DIR/logs/faker_qa/$INSTANCE_ID"
 
 TRACE_LOG="$LOG_DIR/trace.log"
 PYTEST_LOG="$LOG_DIR/pytest.log"

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="${1:-/testbed}"
 INSTANCE_ID="internet_dga_def_use"
 TEST_ID="faker_qa/internet_dga_def_use/files/testcase.py::TestInternetDgaDefUseQA::test_dga_def_use_case"
-LOG_DIR="$ROOT_DIR/logs/qa_instances/$INSTANCE_ID"
+LOG_DIR="$ROOT_DIR/logs/faker_qa/$INSTANCE_ID"
 
 TRACE_LOG="$LOG_DIR/trace.log"
 PYTEST_LOG="$LOG_DIR/pytest.log"

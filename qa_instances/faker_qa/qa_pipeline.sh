@@ -11,10 +11,11 @@ INSTANCE_EVAL="$INSTANCE_DIR/eval.sh"
 
 if [[ -z "$INSTANCE_ID" ]]; then
   echo "Usage: $0 <instance_id> [root_dir]"
-  echo "Run this from faker_qa or call it by path."
+  echo "Run this from the faker_qa directory or call this script by path."
   echo "Available instances:"
   if [[ -d "$INSTANCES_DIR" ]]; then
-    find "$INSTANCES_DIR" -mindepth 1 -maxdepth 1 -type d -printf "  - %f\n" | grep -v "shared" || true
+    find "$INSTANCES_DIR" -mindepth 1 -maxdepth 1 -type d -printf "  - %f\n" \
+      | grep -vE '^  - (shared|qa_artifacts)$' || true
   fi
   exit 1
 fi

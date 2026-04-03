@@ -7,8 +7,9 @@ set -euo pipefail
 
 INSTANCE_ID="${1:-}"
 IMAGE="${IMAGE:-starryzhang/sweb.eval.x86_64.joke2k_1776_faker-2190:latest}"
-CONTAINER_NAME="${CONTAINER_NAME:-qa-pipeline-runner}"
-HOST_QA_DIR="${HOST_QA_DIR:-$(pwd)}"
+CONTAINER_NAME="${CONTAINER_NAME:-qa-pipeline-runner-faker}"
+_RUNNER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST_QA_DIR="${HOST_QA_DIR:-$_RUNNER_DIR}"
 HOST_OUTPUT_DIR="${HOST_OUTPUT_DIR:-$HOST_QA_DIR/qa_artifacts}"
 CONTAINER_REPO_DIR="/testbed"
 CONTAINER_QA_DIR="$CONTAINER_REPO_DIR/faker_qa"
@@ -17,9 +18,9 @@ HOST_PIPELINE_SCRIPT="$HOST_QA_DIR/qa_pipeline.sh"
 
 if [[ -z "$INSTANCE_ID" ]]; then
   echo "Usage: $0 <instance_id>"
-  echo "Example: $0 dense_basic"
-  echo "Example: $0 mha_hard"
-  echo "Run this script from faker_qa/ or set HOST_QA_DIR."
+  echo "Example: $0 misc_provider_binary_unseeded_urandom_output_determinism"
+  echo "Example: $0 address_en_gb_postcode_pattern_internal_state"
+  echo "Run this script from ./faker_qa or set HOST_QA_DIR to that directory."
   exit 1
 fi
 
@@ -27,7 +28,7 @@ echo "Instance:       $INSTANCE_ID"
 echo "Image:          $IMAGE"
 echo "Container name: $CONTAINER_NAME"
 echo "Host qa dir:    $HOST_QA_DIR"
-echo "Host output dir:$HOST_OUTPUT_DIR"
+echo "Host output dir: $HOST_OUTPUT_DIR"
 
 if [[ ! -f "$HOST_PIPELINE_SCRIPT" ]]; then
   echo "ERROR: Missing pipeline script: $HOST_PIPELINE_SCRIPT"
@@ -64,6 +65,7 @@ docker cp "$HOST_QA_DIR/." "$CONTAINER_NAME:$CONTAINER_QA_DIR"
 
 docker exec "$CONTAINER_NAME" bash -lc "chmod +x $CONTAINER_QA_DIR/qa_pipeline.sh && $CONTAINER_QA_DIR/qa_pipeline.sh $INSTANCE_ID $CONTAINER_REPO_DIR"
 
+mkdir -p "$HOST_OUTPUT_DIR"
 INSTANCE_HOST_OUT="$HOST_OUTPUT_DIR/$INSTANCE_ID"
 mkdir -p "$INSTANCE_HOST_OUT"
 docker cp "$CONTAINER_NAME:$CONTAINER_REPO_DIR/logs/faker_qa/$INSTANCE_ID/." "$INSTANCE_HOST_OUT/"
