@@ -23,7 +23,7 @@ def extract_max_depth(trace_text: str) -> dict:
             depth += 1
             if depth > max_depth:
                 max_depth = depth
-        elif event in {"return", "exception"}:
+        elif event == "return":
             depth = max(0, depth - 1)
 
     return {"maximum_call_stack_depth": max_depth}
