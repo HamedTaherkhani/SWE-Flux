@@ -6,6 +6,7 @@ It uses only read-only tools exposed in `run_llm_repomap_eval_in_docker.py`.
 
 Output layout:
   <output-root>/llm/<provider>/<model>/<repo>/<instance>/answer.json
+  <output-root>/llm/<provider>/<model>/<repo>/<instance>/traj.json
 """
 
 from __future__ import annotations
@@ -231,10 +232,13 @@ def run_repo(
         out_dir.mkdir(parents=True, exist_ok=True)
         answer_path = out_dir / "answer.json"
         log_path = out_dir / "llm.log"
+        traj_path = out_dir / "traj.json"
         print(f"[{repo_name}][{idx}/{len(selected_ids)}] {instance_id}")
         trace_prefix = f"[{repo_name}/{instance_id}] "
+        trajectory_events: List[str] = []
 
         def _trace(msg: str) -> None:
+            trajectory_events.append(msg)
             if print_llm_trace:
                 print(trace_prefix + msg)
 
@@ -250,14 +254,31 @@ def run_repo(
                 max_read_chars=max_read_chars,
                 temperature=temperature,
                 max_repair_rounds=max_repair_rounds,
-                trace=_trace if print_llm_trace else None,
+                trace=_trace,
             )
             core.dump_json(answer_path, answer)
+            core.dump_json(
+                traj_path,
+                {
+                    "status": "ok",
+                    "instance": instance_id,
+                    "events": trajectory_events,
+                },
+            )
             log_payload = {"status": "ok", "instance": instance_id, "debug": debug}
             # Defensive guarantee: success should always have answer.json.
             if not answer_path.exists():
                 core.dump_json(answer_path, answer)
         except Exception as exc:
+            core.dump_json(
+                traj_path,
+                {
+                    "status": "error",
+                    "instance": instance_id,
+                    "events": trajectory_events,
+                    "error": str(exc),
+                },
+            )
             log_payload = {
                 "status": "error",
                 "instance": instance_id,

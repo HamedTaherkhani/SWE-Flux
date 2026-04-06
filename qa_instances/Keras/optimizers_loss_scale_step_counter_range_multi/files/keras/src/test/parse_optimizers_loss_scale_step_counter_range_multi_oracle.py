@@ -49,7 +49,6 @@ def main() -> None:
             "`step_counter` values?"
         ),
         "oracle_answer": {
-            "target_variable": "LossScaleOptimizer.step_counter (captured post-apply in _run_scenario)",
             "observed_min": min(values),
             "observed_max": max(values),
             "num_observations": len(values),

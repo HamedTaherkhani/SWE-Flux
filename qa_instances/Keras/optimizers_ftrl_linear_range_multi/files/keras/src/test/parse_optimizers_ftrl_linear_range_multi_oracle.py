@@ -52,8 +52,7 @@ def main() -> None:
         "oracle_answer": {
             "target_variable": "Ftrl.update_step local `linear` slot value",
             "observed_min": observed_min,
-            "observed_max": observed_max,
-            "num_observations": len(values),
+            "observed_max": observed_max
         },
     }
 

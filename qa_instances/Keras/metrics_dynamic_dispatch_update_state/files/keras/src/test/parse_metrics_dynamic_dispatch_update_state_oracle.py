@@ -17,6 +17,16 @@ DISPATCH_CALLSITE_FILE = "keras/src/metrics/metric.py"
 DISPATCH_CALLSITE_LINE = 225
 
 
+def normalize_func_identifier(func: str) -> str:
+    if "|||" in func:
+        full_path, short_name = func.split("|||", 1)
+        if short_name:
+            return f"{full_path}|||{short_name}"
+        func = full_path
+    short_name = func.rsplit(".", 1)[-1]
+    return f"{func}|||{short_name}"
+
+
 def extract_dispatched_update_state(trace_text: str):
     events = [
         {
@@ -46,7 +56,7 @@ def extract_dispatched_update_state(trace_text: str):
                     if nxt["file"].endswith("accuracy_metrics.py"):
                         concrete_class = "BinaryAccuracy"
                     return {
-                        "dispatched_function": nxt["func"],
+                        "dispatched_function": normalize_func_identifier(nxt["func"]),
                         "dispatched_file": nxt["file"],
                         "concrete_class": concrete_class,
                     }
@@ -85,7 +95,7 @@ def main() -> None:
             "dispatch_callsite": {
                 "file": DISPATCH_CALLSITE_FILE,
                 "line": DISPATCH_CALLSITE_LINE,
-                "func": DISPATCH_CALLSITE_FUNC,
+                "func": normalize_func_identifier(DISPATCH_CALLSITE_FUNC),
             },
             **dispatched,
         },

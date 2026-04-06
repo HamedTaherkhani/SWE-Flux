@@ -15,6 +15,16 @@ CALL_RE = re.compile(
 TARGET_FUNCTION = "keras.src.optimizers.base_optimizer.add_variable_from_reference"
 
 
+def normalize_func_identifier(func: str) -> str:
+    if "|||" in func:
+        full_path, short_name = func.split("|||", 1)
+        if short_name:
+            return f"{full_path}|||{short_name}"
+        func = full_path
+    short_name = func.rsplit(".", 1)[-1]
+    return f"{func}|||{short_name}"
+
+
 def extract_calls(trace_text: str):
     calls = []
     for file_path, line_no, func in CALL_RE.findall(trace_text):
@@ -22,7 +32,7 @@ def extract_calls(trace_text: str):
             {
                 "file": file_path.replace("/testbed/", ""),
                 "line": int(line_no),
-                "func": func,
+                "func": normalize_func_identifier(func),
             }
         )
     if not calls:
@@ -44,7 +54,7 @@ def main() -> None:
 
     trace_text = Path(args.trace_log).read_text(encoding="utf-8")
     calls = extract_calls(trace_text)
-    call_count = sum(1 for c in calls if c["func"] == TARGET_FUNCTION)
+    call_count = sum(1 for c in calls if c["func"] == normalize_func_identifier(TARGET_FUNCTION))
 
     qa = {
         "question_kind": "control_flow_prediction",
@@ -62,8 +72,7 @@ def main() -> None:
             "called?"
         ),
         "oracle_answer": {
-            "target_function": TARGET_FUNCTION,
-            "call_count": call_count,
+            "call_count": call_count
         },
     }
 

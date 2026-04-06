@@ -61,22 +61,7 @@ def main() -> None:
             "the exact line-coverage and branch-coverage metrics for this function?"
         ),
         "oracle_answer": {
-            "target_file": file_key,
-            "target_function": func_key,
-            "covered_lines": covered_lines,
-            "missing_lines": missing_lines,
-            "executed_branches": executed_branches,
-            "missing_branches": missing_branches,
-            "line_coverage": {
-                "covered_lines": covered_line_count,
-                "num_statements": num_statements,
-                "coverage_percent": pct(covered_line_count, num_statements),
-            },
-            "branch_coverage": {
-                "covered_branches": covered_branches_count,
-                "num_branches": num_branches,
-                "coverage_percent": pct(covered_branches_count, num_branches),
-            },
+            "covered_lines": covered_lines
         },
     }
 

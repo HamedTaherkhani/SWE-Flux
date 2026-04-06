@@ -156,11 +156,7 @@ def main() -> None:
             "are non-decreasing in order?"
         ),
         "oracle_answer": {
-            "invariant_exists": holds,
-            "num_segments": len(segments),
-            "num_observations": total_observations,
-            "num_loop_frames_checked": total_loop_frames_checked,
-            "counterexample": cex,
+            "invariant_exists": holds
         },
     }
 

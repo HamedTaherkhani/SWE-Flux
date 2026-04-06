@@ -48,7 +48,6 @@ def main() -> None:
             "test class?"
         ),
         "oracle_answer": {
-            "target_variable": "Adam.update_step local `m` slot value",
             "observed_min": min(values),
             "observed_max": max(values),
             "num_observations": len(values),

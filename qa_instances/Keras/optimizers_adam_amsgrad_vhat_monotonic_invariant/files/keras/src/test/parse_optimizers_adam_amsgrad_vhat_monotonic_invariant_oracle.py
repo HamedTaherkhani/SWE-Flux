@@ -72,11 +72,7 @@ def main() -> None:
             "tolerance 1e-9) over successive `update_step` calls?"
         ),
         "oracle_answer": {
-            "invariant_exists": holds,
-            "num_segments": len(segments),
-            "num_slot_paths": sum(len(s) for s in segments),
-            "num_observations": sum(len(v) for s in segments for v in s.values()),
-            "counterexample": counterexample,
+            "invariant_exists": holds
         },
     }
 

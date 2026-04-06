@@ -73,10 +73,7 @@ def main() -> None:
             "momentum slot at that same update)?"
         ),
         "oracle_answer": {
-            "invariant_exists": holds,
-            "num_segments": len(segments),
-            "num_observations": total_obs,
-            "counterexample": cex,
+            "invariant_exists": holds
         },
     }
 

@@ -20,6 +20,7 @@ Options:
 
 Output layout:
   <output-root>/<model>/<repo>/<instance>/answer.json
+  <output-root>/<model>/<repo>/<instance>/traj.json
 
 Examples:
   ./run_cursor_eval_in_docker.sh --model gpt-5 --repo Sympy
@@ -257,6 +258,7 @@ chmod +x /usr/local/bin/cursor-agent"
     instance_dir="$container_repo_instances/$instance_id"
     answer_out="$container_repo_out/$instance_id/answer.json"
     run_log="$container_repo_out/$instance_id/cursor.log"
+    traj_out="$container_repo_out/$instance_id/traj.json"
 
     echo "[$repo][$((i + 1))/$LIMIT] $instance_id"
 
@@ -266,12 +268,14 @@ chmod +x /usr/local/bin/cursor-agent"
       -e INSTANCE_DIR="$instance_dir" \
       -e ANSWER_OUT="$answer_out" \
       -e RUN_LOG="$run_log" \
+      -e TRAJ_OUT="$traj_out" \
       -e WORKSPACE="$CONTAINER_WORKDIR" \
       -e CURSOR_API_KEY="${CURSOR_API_KEY:-}" \
       "$container_name" \
       bash -lc '
         set -euo pipefail
         mkdir -p "$(dirname "$ANSWER_OUT")"
+        RAW_TRAJ_OUT="$(dirname "$ANSWER_OUT")/traj.ndjson"
         PROMPT=$(cat <<EOF
 You are running a repository QA evaluation instance with full environment access.
 
@@ -293,11 +297,47 @@ Required workflow:
 EOF
 )
 
+        : >"$RAW_TRAJ_OUT"
+        cmd_status=0
         if [[ -n "${CURSOR_API_KEY:-}" ]]; then
-          cursor-agent --api-key "$CURSOR_API_KEY" -p --force --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RUN_LOG" 2>&1
+          cursor-agent --api-key "$CURSOR_API_KEY" -p --force --output-format stream-json --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RAW_TRAJ_OUT" 2>"$RUN_LOG" || cmd_status=$?
         else
-          cursor-agent -p --force --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RUN_LOG" 2>&1
+          cursor-agent -p --force --output-format stream-json --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RAW_TRAJ_OUT" 2>"$RUN_LOG" || cmd_status=$?
         fi
+
+        PY_BIN="$(command -v python3 || command -v python || true)"
+        if [[ -n "$PY_BIN" ]]; then
+          "$PY_BIN" - "$RAW_TRAJ_OUT" "$TRAJ_OUT" <<'"'"'PY'"'"'
+import json
+import sys
+
+src = sys.argv[1]
+dst = sys.argv[2]
+events = []
+
+with open(src, "r", encoding="utf-8", errors="replace") as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            events.append(json.loads(line))
+        except Exception:
+            events.append({"type": "raw_line", "text": line})
+
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump({"events": events}, f, indent=2, sort_keys=True)
+    f.write("\n")
+PY
+        else
+          cp "$RAW_TRAJ_OUT" "$TRAJ_OUT"
+        fi
+
+        if (( cmd_status != 0 )); then
+          printf "cursor-agent exited with status %s\n" "$cmd_status" >>"$RUN_LOG"
+        fi
+
+        rm -f "$RAW_TRAJ_OUT"
       ' || true
   done
 
