@@ -102,10 +102,7 @@ def main() -> None:
             "successive calls within a run, computed `scale` also increases?"
         ),
         "oracle_answer": {
-            "invariant_exists": holds,
-            "num_segments": len(segments),
-            "num_observations": total_obs,
-            "counterexample": counterexample,
+            "invariant_exists": holds
         },
     }
 

@@ -16,6 +16,16 @@ TARGET_FILE = "keras/src/layers/preprocessing/rescaling.py"
 TARGET_BLOCK_LINES = [50, 51]
 
 
+def normalize_func_identifier(func: str) -> str:
+    if "|||" in func:
+        full_path, short_name = func.split("|||", 1)
+        if short_name:
+            return f"{full_path}|||{short_name}"
+        func = full_path
+    short_name = func.rsplit(".", 1)[-1]
+    return f"{func}|||{short_name}"
+
+
 def extract_events(trace_text: str):
     events = []
     for file_path, line_no, func in LINE_RE.findall(trace_text):
@@ -24,7 +34,7 @@ def extract_events(trace_text: str):
             {
                 "file": rel_file,
                 "line": int(line_no),
-                "func": func,
+                "func": normalize_func_identifier(func),
             }
         )
     if not events:
@@ -68,11 +78,7 @@ def main() -> None:
             "reshape block under the channels-first condition) ever executed?"
         ),
         "oracle_answer": {
-            "target_block": {
-                "file": TARGET_FILE,
-                "lines": TARGET_BLOCK_LINES,
-            },
-            "is_executed": block_executed,
+            "is_executed": block_executed
         },
     }
 

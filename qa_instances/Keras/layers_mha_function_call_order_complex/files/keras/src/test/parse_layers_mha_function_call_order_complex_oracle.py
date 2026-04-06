@@ -20,6 +20,16 @@ ALLOWED_SUFFIXES = (
 )
 
 
+def normalize_func_identifier(func: str) -> str:
+    if "|||" in func:
+        full_path, short_name = func.split("|||", 1)
+        if short_name:
+            return f"{full_path}|||{short_name}"
+        func = full_path
+    short_name = func.rsplit(".", 1)[-1]
+    return f"{func}|||{short_name}"
+
+
 def extract_function_call_order(trace_text: str):
     order = []
     for file_path, line_no, func in CALL_RE.findall(trace_text):
@@ -29,7 +39,7 @@ def extract_function_call_order(trace_text: str):
                 {
                     "file": rel_file,
                     "line": int(line_no),
-                    "func": func,
+                    "func": normalize_func_identifier(func),
                 }
             )
     if not order:
