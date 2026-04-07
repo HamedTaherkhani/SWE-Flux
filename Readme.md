@@ -10,17 +10,18 @@ pip install -r requirements.txt
 
 ## Evaluation Runners
 
-This repo has three separate evaluation flows:
+This repo has four separate evaluation flows:
 
-1. Cursor CLI in Docker (`run_cursor_eval_in_docker.sh`)
-2. SWE-Agent / mini-SWE-Agent in Docker (`run_swe_agent_eval_in_docker.sh`)
-3. LLM + RepoMap host runner (`run_llm_repomap_eval_host.py`)
+1. Cursor CLI in Docker (`evaluation_scripts/run_cursor_eval_in_docker.sh`)
+2. Claude Code CLI in Docker (`evaluation_scripts/run_claude_code_eval_in_docker.sh`)
+3. SWE-Agent / mini-SWE-Agent in Docker (`evaluation_scripts/run_swe_agent_eval_in_docker.sh`)
+4. LLM + RepoMap host runner (`evaluation_scripts/run_llm_repomap_eval_host.py`)
 
 They are independent.
 
 ## Cursor Evaluation (Docker)
 
-Script: `run_cursor_eval_in_docker.sh`
+Script: `evaluation_scripts/run_cursor_eval_in_docker.sh`
 
 ### Auth details
 
@@ -46,7 +47,7 @@ export CURSOR_API_KEY="your_cursor_key"
 ### Usage
 
 ```bash
-./run_cursor_eval_in_docker.sh --model <model_name> --repo <repo_name|all> [options]
+./evaluation_scripts/run_cursor_eval_in_docker.sh --model <model_name> --repo <repo_name|all> [options]
 ```
 
 Required:
@@ -55,6 +56,7 @@ Required:
 
 Optional:
 - `--num-instances <n>` max instances per repo (default: `all`)
+- `--resume` skip instances that already have a non-empty `answer.json`
 - `--cursor-api-key <key>` override `CURSOR_API_KEY`
 - `--openai-api-key <key>` ignored by Cursor auth
 - `--repos-file <path>` default `Repositories.json`
@@ -70,14 +72,106 @@ Optional:
 ### Examples
 
 ```bash
-./run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Sympy
-./run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo all --num-instances 10
-./run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Keras --cursor-api-key "$CURSOR_API_KEY"
+./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Sympy
+./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo all --num-instances 10
+./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Keras --cursor-api-key "$CURSOR_API_KEY"
+./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo all --resume
+```
+
+### Find Available models
+
+Install Cursor CLI agent on MAC, Linux:
+```bash
+curl https://cursor.com/install -fsS | bash
+```
+
+Login ursor CLI agent:
+
+```bash
+agent login
+```
+
+List models:
+```bash
+agent models
+```
+
+
+
+## Claude Code Evaluation (Docker)
+
+Script: `evaluation_scripts/run_claude_code_eval_in_docker.sh`
+
+### Auth details
+
+- Claude Code auth in this runner uses `ANTHROPIC_API_KEY` (or `--anthropic-api-key`).
+
+Get an Anthropic API key:
+- https://console.anthropic.com/settings/keys
+- Click **Create Key** and copy the key value.
+
+Set it:
+
+```bash
+export ANTHROPIC_API_KEY="your_anthropic_key"
+```
+
+### Prerequisites
+
+- Docker installed and running
+- `jq` installed
+- `Repositories.json` configured (repo -> image mapping)
+- Internet access in container for auto-install (native installer: `curl -fsSL https://claude.ai/install.sh | bash`, npm fallback)
+
+### Usage
+
+```bash
+./evaluation_scripts/run_claude_code_eval_in_docker.sh --model <model_name> --repo <repo_name|all> [options]
+```
+
+Required:
+- `--model` Claude model name (example: `claude-sonnet-4-6`)
+- `--repo` one repo key in `Repositories.json`, or `all`
+
+Optional:
+- `--num-instances <n>` max instances per repo (default: `all`)
+- `--resume` skip instances that already have a non-empty `answer.json`
+- `--anthropic-api-key <key>` override `ANTHROPIC_API_KEY`
+- `--claude-extra-args "<args>"` extra args passed to Claude CLI
+- `--no-auto-install` disable automatic Claude CLI install in container
+- `--repos-file <path>` default `Repositories.json`
+- `--instances-root <path>` default `qa_instances_eval`
+- `--output-root <path>` default `evaluations/claude_code`
+- `--container-workdir <path>` default `/testbed`
+
+### Output layout
+
+- `evaluations/claude_code/<model>/<repo>/<instance>/answer.json`
+- `evaluations/claude_code/<model>/<repo>/<instance>/traj.json`
+- `evaluations/claude_code/<model>/<repo>/<instance>/claude.log`
+
+### Examples
+
+```bash
+./evaluation_scripts/run_claude_code_eval_in_docker.sh --model claude-sonnet-4-6 --repo Sympy --anthropic-api-key "$ANTHROPIC_API_KEY"
+./evaluation_scripts/run_claude_code_eval_in_docker.sh --model claude-sonnet-4-6 --repo all --anthropic-api-key "$ANTHROPIC_API_KEY"
+./evaluation_scripts/run_claude_code_eval_in_docker.sh --model claude-sonnet-4-6 --repo Keras --num-instances 10 --anthropic-api-key "$ANTHROPIC_API_KEY"
+./evaluation_scripts/run_claude_code_eval_in_docker.sh --model claude-sonnet-4-6 --repo all --resume --anthropic-api-key "$ANTHROPIC_API_KEY"
+```
+### Find avaiable models:
+
+Replace $ANTHROPIC_API_KEY with your actual key:
+```bash
+curl https://api.anthropic.com/v1/models \
+  -H "x-api-key: $ANTHROPIC_API_KEY" \
+  -H "anthropic-version: 2023-06-01" \
+| jq -r '.data[] | "\(.id)\t\(.display_name)"'
+
 ```
 
 ## SWE-Agent / mini-SWE-Agent Evaluation (Docker)
 
-Script: `run_swe_agent_eval_in_docker.sh`
+Script: `evaluation_scripts/run_swe_agent_eval_in_docker.sh`
 
 This flow runs either SWE-Agent or mini-SWE-Agent inside each benchmark container.
 
@@ -109,7 +203,7 @@ export OPENROUTER_API_KEY="your_openrouter_key"
 ### Usage
 
 ```bash
-./run_swe_agent_eval_in_docker.sh \
+./evaluation_scripts/run_swe_agent_eval_in_docker.sh \
   --agent <swe-agent|mini-swe-agent> \
   --model <model_name> \
   --repo <repo_name|all> \
@@ -123,6 +217,7 @@ Required:
 
 Optional:
 - `--num-instances <n>` max instances per repo (default: `all`)
+- `--resume` skip instances that already have a non-empty `answer.json`
 - `--agent-extra-args "<args>"` extra args forwarded to selected agent CLI
 - `--repos-file <path>` default `Repositories.json`
 - `--instances-root <path>` default `qa_instances_eval`
@@ -141,14 +236,15 @@ Optional:
 ### Examples
 
 ```bash
-./run_swe_agent_eval_in_docker.sh --agent mini-swe-agent --model openai/gpt-5.4 --repo Sympy
-./run_swe_agent_eval_in_docker.sh --agent swe-agent --model openai/gpt-5.4 --repo all --num-instances 10
-./run_swe_agent_eval_in_docker.sh --agent mini-swe-agent --model openai/gpt-5.4 --repo Keras --openai-api-key "$OPENAI_API_KEY"
+./evaluation_scripts/run_swe_agent_eval_in_docker.sh --agent mini-swe-agent --model openai/gpt-5.4 --repo Sympy
+./evaluation_scripts/run_swe_agent_eval_in_docker.sh --agent swe-agent --model openai/gpt-5.4 --repo all --num-instances 10
+./evaluation_scripts/run_swe_agent_eval_in_docker.sh --agent mini-swe-agent --model openai/gpt-5.4 --repo Keras --openai-api-key "$OPENAI_API_KEY"
+./evaluation_scripts/run_swe_agent_eval_in_docker.sh --agent mini-swe-agent --model openai/gpt-5.4 --repo all --resume
 ```
 
 ## LLM + RepoMap Evaluation (Host-only, Read-only)
 
-Script: `run_llm_repomap_eval_host.py`
+Script: `evaluation_scripts/run_llm_repomap_eval_host.py`
 
 This flow is host-side and read-only:
 - Uses provider APIs (`openai`, `gemini`, `anthropic`)
@@ -179,10 +275,18 @@ export ANTHROPIC_API_KEY="your_anthropic_key"
 ### Usage
 
 ```bash
-python3 run_llm_repomap_eval_host.py \
+python3 evaluation_scripts/run_llm_repomap_eval_host.py \
   --provider openai \
   --model gpt-5.4-2026-03-05 \
   --repo Sympy \
+  --instances-root qa_instances_eval \
+  --output-root evaluations
+
+python3 evaluation_scripts/run_llm_repomap_eval_host.py \
+  --provider openai \
+  --model gpt-5.4-2026-03-05 \
+  --repo all \
+  --resume \
   --instances-root qa_instances_eval \
   --output-root evaluations
 ```
@@ -195,6 +299,7 @@ Model naming notes:
 
 - `--repo <name|all>` one repo under `qa_instances_eval`, or `all`
 - `--num-instances <n|all>` default `all`
+- `--resume` skip instances that already have a non-empty `answer.json`
 - `--repos-file <path>` default `Repositories.json` (used for snapshot materialization)
 - `--mount-root <path>` default `.tmp_mounted_repos`
 - `--materialize-missing-from-image` / `--no-materialize-missing-from-image`
@@ -211,10 +316,10 @@ Model naming notes:
 
 ## Scoring Against Oracle
 
-Script: `evaluate_qa_answers.py`
+Script: `evaluation_scripts/evaluate_qa_answers.py`
 
 ```bash
-python3 evaluate_qa_answers.py \
+python3 evaluation_scripts/evaluate_qa_answers.py \
   --tool llm \
   --vendor openai \
   --model gpt-5.4-2026-03-05 \
@@ -224,7 +329,7 @@ python3 evaluate_qa_answers.py \
 ```
 
 ```bash
-python3 evaluate_qa_answers.py \
+python3 evaluation_scripts/evaluate_qa_answers.py \
   --tool cursor \
   --model gpt-5.3-codex-high \
   --repo Sympy \
@@ -233,7 +338,16 @@ python3 evaluate_qa_answers.py \
 ```
 
 ```bash
-python3 evaluate_qa_answers.py \
+python3 evaluation_scripts/evaluate_qa_answers.py \
+  --tool claude_code \
+  --model claude-sonnet-4-6 \
+  --repo Sympy \
+  --qa-root qa_instances_eval \
+  --eval-root evaluations
+```
+
+```bash
+python3 evaluation_scripts/evaluate_qa_answers.py \
   --tool swe-agent \
   --model openai_gpt-5.4 \
   --repo Sympy \
@@ -242,7 +356,7 @@ python3 evaluate_qa_answers.py \
 ```
 
 ```bash
-python3 evaluate_qa_answers.py \
+python3 evaluation_scripts/evaluate_qa_answers.py \
   --tool mini-swe-agent \
   --model openai_gpt-5.4 \
   --repo Sympy \

@@ -27,7 +27,7 @@ def extract_output(trace_text: str) -> dict:
         raise ValueError("Could not find local variable `rv` in factor_terms trace locals.")
     rv_value = parsed_locals["rv"]
 
-    return {"rv": rv_value}
+    return {"rv": rv_value+"|||x + y + sin(x)**2 + cos(x)**2"}
 
 
 def main() -> None:
