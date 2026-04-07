@@ -70,10 +70,7 @@ def main() -> None:
             "does `output_tensor` remain identical across all runs?"
         ),
         "oracle_answer": {
-            "invariant_exists": holds,
-            "num_segments": len(payloads),
-            "num_observations": max(0, len(payloads) - 1),
-            "counterexample": counterexample,
+            "invariant_exists": holds
         },
     }
 

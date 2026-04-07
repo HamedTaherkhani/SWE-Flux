@@ -86,10 +86,7 @@ def main() -> None:
             "exactly identical across all runs?"
         ),
         "oracle_answer": {
-            "invariant_exists": holds,
-            "num_segments": len(sequences),
-            "num_observations": max(0, len(sequences) - 1),
-            "counterexample": counterexample,
+            "invariant_exists": holds
         },
     }
 

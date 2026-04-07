@@ -15,6 +15,16 @@ CALL_RE = re.compile(
 TARGET_FUNCTION = "keras.src.layers.attention.multi_head_attention._masked_softmax"
 
 
+def normalize_func_identifier(func: str) -> str:
+    if "|||" in func:
+        full_path, short_name = func.split("|||", 1)
+        if short_name:
+            return f"{full_path}|||{short_name}"
+        func = full_path
+    short_name = func.rsplit(".", 1)[-1]
+    return f"{func}|||{short_name}"
+
+
 def extract_calls(trace_text: str):
     calls = []
     for file_path, line_no, func in CALL_RE.findall(trace_text):
@@ -22,7 +32,7 @@ def extract_calls(trace_text: str):
             {
                 "file": file_path.replace("/testbed/", ""),
                 "line": int(line_no),
-                "func": func,
+                "func": normalize_func_identifier(func),
             }
         )
     if not calls:
@@ -45,7 +55,7 @@ def main() -> None:
     trace_text = Path(args.trace_log).read_text(encoding="utf-8")
     calls = extract_calls(trace_text)
 
-    target_called = any(c["func"] == TARGET_FUNCTION for c in calls)
+    target_called = any(c["func"] == normalize_func_identifier(TARGET_FUNCTION) for c in calls)
     first_30_calls = calls[:30]
 
     qa = {
@@ -66,9 +76,7 @@ def main() -> None:
             "`keras.src.layers.attention.multi_head_attention._masked_softmax` ever called?"
         ),
         "oracle_answer": {
-            "target_function": TARGET_FUNCTION,
-            "is_called": target_called,
-            "first_30_call_events": first_30_calls,
+            "is_called": target_called
         },
     }
 

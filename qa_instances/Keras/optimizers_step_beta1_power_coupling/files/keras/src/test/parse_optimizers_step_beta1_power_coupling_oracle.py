@@ -103,10 +103,7 @@ def main() -> None:
             "a run, `beta_1_power` decreases?"
         ),
         "oracle_answer": {
-            "invariant_exists": holds,
-            "num_segments": len(segments),
-            "num_observations": total_obs,
-            "counterexample": counterexample,
+            "invariant_exists": holds
         },
     }
 

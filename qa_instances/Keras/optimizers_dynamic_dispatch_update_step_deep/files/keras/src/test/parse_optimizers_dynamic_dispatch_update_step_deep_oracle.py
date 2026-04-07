@@ -24,6 +24,16 @@ def infer_class_name(file_path: str) -> str:
     return "".join(part.capitalize() for part in name.split("_"))
 
 
+def normalize_func_identifier(func: str) -> str:
+    if "|||" in func:
+        full_path, short_name = func.split("|||", 1)
+        if short_name:
+            return f"{full_path}|||{short_name}"
+        func = full_path
+    short_name = func.rsplit(".", 1)[-1]
+    return f"{func}|||{short_name}"
+
+
 def extract_dispatched_update_step(trace_text: str):
     events = [
         {
@@ -50,7 +60,7 @@ def extract_dispatched_update_step(trace_text: str):
                     "base_optimizer.py"
                 ):
                     return {
-                        "dispatched_function": nxt["func"],
+                        "dispatched_function": normalize_func_identifier(nxt["func"]),
                         "dispatched_file": nxt["file"],
                         "concrete_class": infer_class_name(nxt["file"]),
                     }
@@ -93,7 +103,7 @@ def main() -> None:
             "dispatch_callsite": {
                 "file": DISPATCH_CALLSITE_FILE,
                 "line": DISPATCH_CALLSITE_LINE,
-                "func": DISPATCH_CALLSITE_FUNC,
+                "func": normalize_func_identifier(DISPATCH_CALLSITE_FUNC),
             },
             **dispatched,
         },
