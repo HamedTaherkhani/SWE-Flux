@@ -14,6 +14,23 @@ LINE_RE = re.compile(
     re.MULTILINE,
 )
 
+TARGET_FUNCTION_IDENTIFIER = (
+    "xarray.core.variable.calculate_dimensions|||"
+    "xarray/core/variable.py::calculate_dimensions|||"
+    "calculate_dimensions"
+)
+
+
+def _iter_identifier_tokens(func: str) -> list[str]:
+    if "|||" in func:
+        return [part.strip() for part in func.split("|||") if part.strip()]
+    return [func.strip()]
+
+
+def _short_name(func_token: str) -> str:
+    rhs = func_token.split("::", 1)[-1]
+    return rhs.rsplit(".", 1)[-1]
+
 
 def _return_line(source_text: str) -> int:
     tree = ast.parse(source_text)
@@ -43,7 +60,8 @@ def extract_determinism(trace_text: str, source_text: str) -> dict[str, object]:
 
     events: list[tuple[int, dict[str, str]]] = []
     for m in LINE_RE.finditer(trace_text):
-        if not m.group("func").endswith(".calculate_dimensions"):
+        func = m.group("func")
+        if not any(_short_name(token) == "calculate_dimensions" for token in _iter_identifier_tokens(func)):
             continue
         events.append((int(m.group("lineno")), ast.literal_eval(m.group("locals"))))
 
@@ -74,7 +92,7 @@ def extract_determinism(trace_text: str, source_text: str) -> dict[str, object]:
     repeated = per_call_outputs[:5]
     deterministic = all(v == repeated[0] for v in repeated)
     return {
-        "function": "calculate_dimensions",
+        "function": TARGET_FUNCTION_IDENTIFIER,
         "repetitions": 5,
         "is_output_identical_every_time": deterministic,
     }

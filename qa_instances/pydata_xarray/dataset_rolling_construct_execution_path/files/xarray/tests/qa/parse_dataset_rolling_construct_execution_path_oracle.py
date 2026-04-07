@@ -14,17 +14,34 @@ LINE_RE = re.compile(
     re.MULTILINE,
 )
 
+TARGET_FUNCTION_IDENTIFIER = (
+    "xarray.computation.rolling.construct|||"
+    "xarray/core/rolling.py::DatasetRolling.construct|||"
+    "DatasetRolling.construct|||construct"
+)
+
+
+def _iter_identifier_tokens(func: str) -> list[str]:
+    if "|||" in func:
+        return [part.strip() for part in func.split("|||") if part.strip()]
+    return [func.strip()]
+
+
+def _short_name(func_token: str) -> str:
+    rhs = func_token.split("::", 1)[-1]
+    return rhs.rsplit(".", 1)[-1]
+
 
 def extract_execution_path(trace_text: str) -> dict[str, list[dict[str, int | str]]]:
     path = []
     for m in LINE_RE.finditer(trace_text):
         func = m.group("func")
-        if not func.endswith(".construct"):
+        if not any(_short_name(token) == "construct" for token in _iter_identifier_tokens(func)):
             continue
         path.append(
             {
                 "file": "xarray/core/rolling.py",
-                "func": func,
+                "func": TARGET_FUNCTION_IDENTIFIER,
                 "line": int(m.group("lineno")),
             }
         )

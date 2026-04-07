@@ -14,6 +14,23 @@ LINE_RE = re.compile(
     re.MULTILINE,
 )
 
+TARGET_FUNCTION_IDENTIFIER = (
+    "xarray.core.dtypes.maybe_promote|||"
+    "xarray/core/dtypes.py::maybe_promote|||"
+    "maybe_promote"
+)
+
+
+def _iter_identifier_tokens(func: str) -> list[str]:
+    if "|||" in func:
+        return [part.strip() for part in func.split("|||") if part.strip()]
+    return [func.strip()]
+
+
+def _short_name(func_token: str) -> str:
+    rhs = func_token.split("::", 1)[-1]
+    return rhs.rsplit(".", 1)[-1]
+
 
 def _start_line(source_text: str) -> int:
     tree = ast.parse(source_text)
@@ -31,7 +48,8 @@ def extract_path_determinism(trace_text: str, source_text: str) -> dict[str, obj
     maybe_events: list[int] = []
 
     for m in LINE_RE.finditer(trace_text):
-        if m.group("func").endswith(".maybe_promote"):
+        func = m.group("func")
+        if any(_short_name(token) == "maybe_promote" for token in _iter_identifier_tokens(func)):
             maybe_events.append(int(m.group("lineno")))
 
     if not maybe_events:
@@ -56,7 +74,7 @@ def extract_path_determinism(trace_text: str, source_text: str) -> dict[str, obj
     first_five = sequences[:5]
     deterministic = all(path == first_five[0] for path in first_five)
     return {
-        "function": "maybe_promote",
+        "function": TARGET_FUNCTION_IDENTIFIER,
         "repetitions": 5,
         "is_line_path_identical_every_time": deterministic,
     }

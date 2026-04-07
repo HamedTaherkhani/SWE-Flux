@@ -13,20 +13,55 @@ CALL_RE = re.compile(
     re.MULTILINE,
 )
 
-TARGET_FUNCS = {
-    "xarray.core.indexes.PandasIndex.sel",
-    "xarray.core.indexes.normalize_label",
-    "xarray.core.indexes.as_scalar",
-    "xarray.core.indexes.get_indexer_nd",
+NORMALIZED_FUNCTIONS = {
+    "sel": (
+        "xarray.core.indexes.PandasIndex.sel|||"
+        "xarray/core/indexes.py::PandasIndex.sel|||"
+        "xarray.core.indexes.sel|||"
+        "xarray/core/indexes.py::sel|||"
+        "PandasIndex.sel|||sel"
+    ),
+    "normalize_label": (
+        "xarray.core.indexes.normalize_label|||"
+        "xarray/core/indexes.py::normalize_label|||"
+        "normalize_label"
+    ),
+    "as_scalar": (
+        "xarray.core.indexes.as_scalar|||"
+        "xarray/core/indexes.py::as_scalar|||"
+        "as_scalar"
+    ),
+    "get_indexer_nd": (
+        "xarray.core.indexes.get_indexer_nd|||"
+        "xarray/core/indexes.py::get_indexer_nd|||"
+        "get_indexer_nd"
+    ),
 }
+
+
+def _iter_identifier_tokens(func: str) -> list[str]:
+    if "|||" in func:
+        return [part.strip() for part in func.split("|||") if part.strip()]
+    return [func.strip()]
+
+
+def _short_name(func_token: str) -> str:
+    rhs = func_token.split("::", 1)[-1]
+    return rhs.rsplit(".", 1)[-1]
 
 
 def extract_call_order(trace_text: str) -> dict[str, list[str]]:
     order = []
     for m in CALL_RE.finditer(trace_text):
         func = m.group("func")
-        if any(func.endswith(f".{name}") for name in ("sel", "normalize_label", "as_scalar", "get_indexer_nd")):
-            order.append(func)
+        matched_key = None
+        for token in _iter_identifier_tokens(func):
+            short_name = _short_name(token)
+            if short_name in NORMALIZED_FUNCTIONS:
+                matched_key = short_name
+                break
+        if matched_key is not None:
+            order.append(NORMALIZED_FUNCTIONS[matched_key])
 
     if not order:
         raise ValueError("Could not find target function calls in trace log.")

@@ -14,6 +14,23 @@ LINE_RE = re.compile(
     re.MULTILINE,
 )
 
+TARGET_FUNCTION_IDENTIFIER = (
+    "xarray.core.common.get_squeeze_dims|||"
+    "xarray/core/common.py::get_squeeze_dims|||"
+    "get_squeeze_dims"
+)
+
+
+def _iter_identifier_tokens(func: str) -> list[str]:
+    if "|||" in func:
+        return [part.strip() for part in func.split("|||") if part.strip()]
+    return [func.strip()]
+
+
+def _short_name(func_token: str) -> str:
+    rhs = func_token.split("::", 1)[-1]
+    return rhs.rsplit(".", 1)[-1]
+
 
 def _function_line_range(source_text: str) -> tuple[int, int]:
     tree = ast.parse(source_text)
@@ -36,7 +53,8 @@ def extract_covered_lines(trace_text: str, source_text: str) -> dict[str, object
     covered: set[int] = set()
 
     for m in LINE_RE.finditer(trace_text):
-        if not m.group("func").endswith(".get_squeeze_dims"):
+        func = m.group("func")
+        if not any(_short_name(token) == "get_squeeze_dims" for token in _iter_identifier_tokens(func)):
             continue
         lineno = int(m.group("lineno"))
         if start <= lineno <= end:
@@ -46,7 +64,7 @@ def extract_covered_lines(trace_text: str, source_text: str) -> dict[str, object
         raise ValueError("No covered lines captured for get_squeeze_dims.")
 
     return {
-        "target_function": "get_squeeze_dims",
+        "target_function": TARGET_FUNCTION_IDENTIFIER,
         "covered_lines": sorted(covered),
     }
 

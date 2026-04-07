@@ -14,6 +14,23 @@ LINE_RE = re.compile(
     re.MULTILINE,
 )
 
+TARGET_FUNCTION_IDENTIFIER = (
+    "xarray.core.formatting.format_array_flat|||"
+    "xarray/core/formatting.py::format_array_flat|||"
+    "format_array_flat"
+)
+
+
+def _iter_identifier_tokens(func: str) -> list[str]:
+    if "|||" in func:
+        return [part.strip() for part in func.split("|||") if part.strip()]
+    return [func.strip()]
+
+
+def _short_name(func_token: str) -> str:
+    rhs = func_token.split("::", 1)[-1]
+    return rhs.rsplit(".", 1)[-1]
+
 
 def _probe_function_exists(source_text: str) -> None:
     tree = ast.parse(source_text)
@@ -36,7 +53,8 @@ def extract_determinism(trace_text: str, source_text: str) -> dict[str, object]:
 
     events: list[tuple[int, dict[str, str]]] = []
     for m in LINE_RE.finditer(trace_text):
-        if not m.group("func").endswith(".format_array_flat"):
+        func = m.group("func")
+        if not any(_short_name(token) == "format_array_flat" for token in _iter_identifier_tokens(func)):
             continue
         events.append((int(m.group("lineno")), ast.literal_eval(m.group("locals"))))
 
@@ -67,7 +85,7 @@ def extract_determinism(trace_text: str, source_text: str) -> dict[str, object]:
     repeated = per_call_outputs[:5]
     deterministic = all(v == repeated[0] for v in repeated)
     return {
-        "function": "format_array_flat",
+        "function": TARGET_FUNCTION_IDENTIFIER,
         "repetitions": 5,
         "is_output_identical_every_time": deterministic,
     }
