@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="${1:-/testbed}"
 INSTANCE_ID="bank_es_mx_clabe_result_shape_invariant"
-TEST_ID="faker_qa/bank_es_mx_clabe_result_shape_invariant/files/testcase.py::TestBankClabeResultShapeInvariantQA::test_clabe_result_shape_invariant"
+TEST_ID="faker_qa/bank_es_mx_clabe_result_shape_invariant/files/testcase.py::TestBankClabeResultShapeInvariantQA::test_clabe_result_shape_invariant_case"
 LOG_DIR="$ROOT_DIR/logs/faker_qa/$INSTANCE_ID"
 
 TRACE_LOG="$LOG_DIR/trace.log"
