@@ -18,8 +18,10 @@ Worker mode (--worker):
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import inspect
 import json
+import math
 import os
 import re
 import shlex
@@ -67,6 +69,342 @@ def select_instances(repo_instances_dir: Path, num_instances: str) -> List[str]:
         return instance_ids
     limit = int(num_instances)
     return instance_ids[: max(0, min(limit, len(instance_ids)))]
+
+
+USAGE_NUMERIC_KEYS = [
+    "requests",
+    "usage_missing_requests",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cached_input_tokens",
+    "reasoning_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+]
+
+MODEL_COSTS_PATH = REPO_ROOT / "evaluations" / "llm" / "provider_model_costs.json"
+_MODEL_COSTS_CACHE: Optional[Dict[str, Any]] = None
+
+
+def _to_int_or_none(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        try:
+            return int(value)
+        except Exception:
+            return None
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return int(float(s))
+        except Exception:
+            return None
+    return None
+
+
+def _to_float_or_none(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return float(s)
+        except Exception:
+            return None
+    return None
+
+
+def empty_usage(provider: str, model: str) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"provider": provider, "model": model}
+    for key in USAGE_NUMERIC_KEYS:
+        payload[key] = 0
+    return payload
+
+
+def merge_usage(into: Dict[str, Any], usage: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(usage, dict):
+        return into
+    for key in USAGE_NUMERIC_KEYS:
+        inc = _to_int_or_none(usage.get(key))
+        if inc is None:
+            continue
+        into[key] = int(into.get(key, 0)) + max(0, inc)
+    if int(into.get("total_tokens", 0)) <= 0:
+        into["total_tokens"] = int(into.get("input_tokens", 0)) + int(into.get("output_tokens", 0))
+    return into
+
+
+def _compute_usage_cost_with_rates(
+    *,
+    usage: Dict[str, Any],
+    input_cost_per_1m: Optional[float],
+    output_cost_per_1m: Optional[float],
+    cached_input_cost_per_1m: Optional[float],
+) -> Dict[str, Any]:
+    in_rate = _to_float_or_none(input_cost_per_1m)
+    out_rate = _to_float_or_none(output_cost_per_1m)
+    cache_rate = _to_float_or_none(cached_input_cost_per_1m)
+
+    pricing = {
+        "input_cost_per_1m": in_rate,
+        "output_cost_per_1m": out_rate,
+        "cached_input_cost_per_1m": cache_rate if cache_rate is not None else in_rate,
+    }
+
+    if in_rate is None or out_rate is None:
+        return {
+            "configured": False,
+            "currency": "USD",
+            "pricing": pricing,
+            "cost_usd": None,
+        }
+
+    input_tokens = max(0, int(_to_int_or_none(usage.get("input_tokens")) or 0))
+    output_tokens = max(0, int(_to_int_or_none(usage.get("output_tokens")) or 0))
+    cached_input_tokens = max(0, int(_to_int_or_none(usage.get("cached_input_tokens")) or 0))
+    cached_input_tokens = min(cached_input_tokens, input_tokens)
+    uncached_input_tokens = max(0, input_tokens - cached_input_tokens)
+    eff_cache_rate = in_rate if cache_rate is None else cache_rate
+
+    input_cost = (uncached_input_tokens / 1_000_000.0) * in_rate
+    cached_input_cost = (cached_input_tokens / 1_000_000.0) * eff_cache_rate
+    output_cost = (output_tokens / 1_000_000.0) * out_rate
+    total_cost = input_cost + cached_input_cost + output_cost
+
+    return {
+        "configured": True,
+        "currency": "USD",
+        "pricing": pricing,
+        "billable_tokens": {
+            "input_uncached": uncached_input_tokens,
+            "input_cached": cached_input_tokens,
+            "output": output_tokens,
+        },
+        "cost_breakdown_usd": {
+            "input_uncached": input_cost,
+            "input_cached": cached_input_cost,
+            "output": output_cost,
+        },
+        "cost_usd": total_cost,
+    }
+
+
+def _model_candidates(model: str) -> List[str]:
+    raw = (model or "").strip()
+    if not raw:
+        return []
+    out: List[str] = [raw]
+
+    # Common version/date suffixes, e.g. gpt-5.4-2026-03-05.
+    m = re.match(r"^(.*)-\d{4}-\d{2}-\d{2}$", raw)
+    if m:
+        out.append(m.group(1))
+    m2 = re.match(r"^(.*)-\d{8}$", raw)
+    if m2:
+        out.append(m2.group(1))
+
+    # Common stability tags.
+    if raw.endswith("-latest"):
+        out.append(raw[: -len("-latest")])
+    if raw.endswith("-preview"):
+        out.append(raw[: -len("-preview")])
+
+    # Deduplicate, preserve order.
+    dedup: List[str] = []
+    seen = set()
+    for c in out:
+        if c and c not in seen:
+            dedup.append(c)
+            seen.add(c)
+    return dedup
+
+
+def load_model_costs_db() -> Dict[str, Any]:
+    global _MODEL_COSTS_CACHE
+    if _MODEL_COSTS_CACHE is not None:
+        return _MODEL_COSTS_CACHE
+    if not MODEL_COSTS_PATH.exists():
+        _MODEL_COSTS_CACHE = {}
+        return _MODEL_COSTS_CACHE
+    try:
+        payload = load_json(MODEL_COSTS_PATH)
+    except Exception:
+        payload = {}
+    _MODEL_COSTS_CACHE = payload if isinstance(payload, dict) else {}
+    return _MODEL_COSTS_CACHE
+
+
+def resolve_model_cost_entry(provider: str, model: str) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    db = load_model_costs_db()
+    provider_obj = db.get(provider, {})
+    if not isinstance(provider_obj, dict):
+        return None, {
+            "provider": provider,
+            "model": model,
+            "pricing_file": str(MODEL_COSTS_PATH),
+            "matched": False,
+            "reason": f"provider '{provider}' not found in pricing file",
+        }
+
+    model_table = provider_obj.get("models", provider_obj)
+    if not isinstance(model_table, dict):
+        return None, {
+            "provider": provider,
+            "model": model,
+            "pricing_file": str(MODEL_COSTS_PATH),
+            "matched": False,
+            "reason": f"provider '{provider}' has invalid model table in pricing file",
+        }
+
+    aliases = provider_obj.get("aliases", {})
+    if not isinstance(aliases, dict):
+        aliases = {}
+
+    candidates = _model_candidates(model)
+    for cand in candidates:
+        if cand in aliases:
+            alias_target = str(aliases[cand])
+            entry = model_table.get(alias_target)
+            if isinstance(entry, dict):
+                return dict(entry), {
+                    "provider": provider,
+                    "model": model,
+                    "matched": True,
+                    "matched_model": alias_target,
+                    "match_type": "alias",
+                    "pricing_file": str(MODEL_COSTS_PATH),
+                }
+
+    for cand in candidates:
+        entry = model_table.get(cand)
+        if isinstance(entry, dict):
+            return dict(entry), {
+                "provider": provider,
+                "model": model,
+                "matched": True,
+                "matched_model": cand,
+                "match_type": "exact",
+                "pricing_file": str(MODEL_COSTS_PATH),
+            }
+
+    # Prefix fallback (supports versioned model ids that share a base name).
+    keys = sorted([str(k) for k in model_table.keys()], key=len, reverse=True)
+    for cand in candidates:
+        for key in keys:
+            if cand.startswith(key):
+                entry = model_table.get(key)
+                if isinstance(entry, dict):
+                    return dict(entry), {
+                        "provider": provider,
+                        "model": model,
+                        "matched": True,
+                        "matched_model": key,
+                        "match_type": "prefix",
+                        "pricing_file": str(MODEL_COSTS_PATH),
+                    }
+
+    return None, {
+        "provider": provider,
+        "model": model,
+        "matched": False,
+        "match_type": "none",
+        "pricing_file": str(MODEL_COSTS_PATH),
+        "reason": f"model entry not found in cost json for provider='{provider}', model='{model}'",
+    }
+
+
+def compute_usage_cost_for_model(*, provider: str, model: str, usage: Dict[str, Any]) -> Dict[str, Any]:
+    entry, lookup = resolve_model_cost_entry(provider, model)
+    if entry is None:
+        return {
+            "configured": False,
+            "currency": "USD",
+            "cost_usd": None,
+            "model_lookup": lookup,
+            "reason": str(lookup.get("reason", "model entry not found in cost json")),
+        }
+
+    cost = _compute_usage_cost_with_rates(
+        usage=usage,
+        input_cost_per_1m=_to_float_or_none(entry.get("input_cost_per_1m")),
+        output_cost_per_1m=_to_float_or_none(entry.get("output_cost_per_1m")),
+        cached_input_cost_per_1m=_to_float_or_none(entry.get("cached_input_cost_per_1m")),
+    )
+    cost["model_lookup"] = lookup
+    cost["pricing_file"] = str(MODEL_COSTS_PATH)
+    return cost
+
+
+def write_repo_usage_file(repo_out_root: Path, provider: str, model: str) -> None:
+    repo_out_root = repo_out_root.resolve()
+    all_usage = empty_usage(provider, model)
+    instances: List[Dict[str, Any]] = []
+    total_cost = 0.0
+    has_unknown_cost = False
+
+    for inst_dir in sorted(p for p in repo_out_root.iterdir() if p.is_dir()):
+        usage_path = inst_dir / "usage.json"
+        if not usage_path.exists():
+            continue
+        try:
+            payload = load_json(usage_path)
+        except Exception:
+            instances.append(
+                {
+                    "instance": inst_dir.name,
+                    "status": "error",
+                    "usage_path": str(usage_path),
+                    "error": "failed to parse usage.json",
+                }
+            )
+            has_unknown_cost = True
+            continue
+
+        inst_usage = payload.get("usage")
+        if isinstance(inst_usage, dict):
+            merge_usage(all_usage, inst_usage)
+
+        cost_obj = payload.get("cost")
+        inst_cost = None
+        if isinstance(cost_obj, dict):
+            inst_cost = _to_float_or_none(cost_obj.get("cost_usd"))
+        if inst_cost is None:
+            has_unknown_cost = True
+        else:
+            total_cost += inst_cost
+
+        instances.append(
+            {
+                "instance": str(payload.get("instance", inst_dir.name)),
+                "status": str(payload.get("status", "unknown")),
+                "cost_usd": inst_cost,
+                "usage_path": str(usage_path),
+            }
+        )
+
+    out = {
+        "repo": repo_out_root.name,
+        "provider": provider,
+        "model": model,
+        "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "instance_count": len(instances),
+        "all_usage": all_usage,
+        "all_cost_usd": None if has_unknown_cost else total_cost,
+        "instances": instances,
+    }
+    dump_json(repo_out_root / "usage.json", out)
 
 
 def extract_first_json_object(text: str) -> Optional[Any]:
@@ -186,6 +524,231 @@ def validate_against_template(answer: Any, template: Any, path: str = "$") -> Li
     return []
 
 
+def _json_loads_if_possible(value: Any) -> Tuple[Any, bool]:
+    if not isinstance(value, str):
+        return value, False
+    s = value.strip()
+    if not s:
+        return value, False
+    try:
+        return json.loads(s), True
+    except json.JSONDecodeError:
+        return value, False
+
+
+def _coerce_to_bool(value: Any) -> Tuple[Any, bool]:
+    if isinstance(value, bool):
+        return value, False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(value), True
+    if isinstance(value, str):
+        s = value.strip().lower()
+        true_set = {"true", "t", "yes", "y", "on", "1"}
+        false_set = {"false", "f", "no", "n", "off", "0", ""}
+        if s in true_set:
+            return True, True
+        if s in false_set:
+            return False, True
+        parsed, changed = _json_loads_if_possible(value)
+        if changed:
+            return _coerce_to_bool(parsed)
+    return value, False
+
+
+def _coerce_to_int(value: Any) -> Tuple[Any, bool]:
+    if isinstance(value, bool):
+        return int(value), True
+    if isinstance(value, int):
+        return value, False
+    if isinstance(value, float):
+        if math.isfinite(value) and value.is_integer():
+            return int(value), True
+        return value, False
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in {"true", "t", "yes", "y", "on"}:
+            return 1, True
+        if s in {"false", "f", "no", "n", "off"}:
+            return 0, True
+        s_num = s.replace(",", "").replace("_", "")
+        if re.fullmatch(r"[+-]?\d+", s_num):
+            try:
+                return int(s_num), True
+            except Exception:
+                pass
+        if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", s_num):
+            try:
+                fv = float(s_num)
+                if math.isfinite(fv) and fv.is_integer():
+                    return int(fv), True
+            except Exception:
+                pass
+        parsed, changed = _json_loads_if_possible(value)
+        if changed:
+            return _coerce_to_int(parsed)
+    return value, False
+
+
+def _coerce_to_float(value: Any) -> Tuple[Any, bool]:
+    if isinstance(value, bool):
+        return float(value), True
+    if isinstance(value, int) and not isinstance(value, bool):
+        return float(value), True
+    if isinstance(value, float):
+        return value, False
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in {"true", "t", "yes", "y", "on"}:
+            return 1.0, True
+        if s in {"false", "f", "no", "n", "off"}:
+            return 0.0, True
+        s_num = s.replace(",", "").replace("_", "")
+        try:
+            return float(s_num), True
+        except Exception:
+            pass
+        parsed, changed = _json_loads_if_possible(value)
+        if changed:
+            return _coerce_to_float(parsed)
+    return value, False
+
+
+def _coerce_to_str(value: Any) -> Tuple[Any, bool]:
+    if isinstance(value, str):
+        return value, False
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")), True
+    if value is None:
+        return "null", True
+    return str(value), True
+
+
+def _coerce_to_list(value: Any) -> Tuple[Any, bool]:
+    if isinstance(value, list):
+        return value, False
+    if isinstance(value, (tuple, set)):
+        return list(value), True
+    if isinstance(value, str):
+        parsed, changed = _json_loads_if_possible(value)
+        if changed:
+            if isinstance(parsed, list):
+                return parsed, True
+            return [parsed], True
+    if value is None:
+        return [], True
+    return [value], True
+
+
+def _coerce_to_dict(value: Any) -> Tuple[Any, bool]:
+    if isinstance(value, dict):
+        return value, False
+    if isinstance(value, str):
+        parsed, changed = _json_loads_if_possible(value)
+        if changed:
+            if isinstance(parsed, dict):
+                return parsed, True
+            if isinstance(parsed, list):
+                try:
+                    return dict(parsed), True
+                except Exception:
+                    pass
+    if isinstance(value, (list, tuple)):
+        try:
+            return dict(value), True
+        except Exception:
+            return value, False
+    return value, False
+
+
+def _template_kind(template: Any) -> Optional[str]:
+    if isinstance(template, str):
+        token = template.strip().lower()
+        if token in {"int", "integer"}:
+            return "int"
+        if token in {"float", "number"}:
+            return "float"
+        if token in {"str", "string"}:
+            return "str"
+        if token in {"bool", "boolean"}:
+            return "bool"
+        if token in {"list", "array"}:
+            return "list"
+        if token in {"dict", "object"}:
+            return "dict"
+        return "str"
+    if isinstance(template, bool):
+        return "bool"
+    if isinstance(template, int):
+        return "int"
+    if isinstance(template, float):
+        return "float"
+    if isinstance(template, list):
+        return "list"
+    if isinstance(template, dict):
+        return "dict"
+    return None
+
+
+def _coerce_by_kind(value: Any, kind: str) -> Tuple[Any, bool]:
+    if kind == "bool":
+        return _coerce_to_bool(value)
+    if kind == "int":
+        return _coerce_to_int(value)
+    if kind == "float":
+        return _coerce_to_float(value)
+    if kind == "str":
+        return _coerce_to_str(value)
+    if kind == "list":
+        return _coerce_to_list(value)
+    if kind == "dict":
+        return _coerce_to_dict(value)
+    return value, False
+
+
+def coerce_against_template(answer: Any, template: Any, path: str = "$") -> Tuple[Any, List[str]]:
+    notes: List[str] = []
+
+    if isinstance(template, dict):
+        container, changed = _coerce_to_dict(answer)
+        if changed:
+            notes.append(f"{path}: coerced {_type_label(answer)}->dict")
+        if not isinstance(container, dict):
+            return container, notes
+        out = dict(container)
+        for key, tval in template.items():
+            if key not in out:
+                continue
+            coerced, child_notes = coerce_against_template(out[key], tval, f"{path}.{key}")
+            out[key] = coerced
+            notes.extend(child_notes)
+        return out, notes
+
+    if isinstance(template, list):
+        container, changed = _coerce_to_list(answer)
+        if changed:
+            notes.append(f"{path}: coerced {_type_label(answer)}->list")
+        if not isinstance(container, list):
+            return container, notes
+        if not template:
+            return container, notes
+        item_template = template[0]
+        out_list: List[Any] = []
+        for idx, item in enumerate(container):
+            coerced, child_notes = coerce_against_template(item, item_template, f"{path}[{idx}]")
+            out_list.append(coerced)
+            notes.extend(child_notes)
+        return out_list, notes
+
+    kind = _template_kind(template)
+    if kind is None:
+        return answer, notes
+
+    coerced, changed = _coerce_by_kind(answer, kind)
+    if changed:
+        notes.append(f"{path}: coerced {_type_label(answer)}->{kind}")
+    return coerced, notes
+
+
 # ---------------------------
 # RepoMap + read-only tools
 # ---------------------------
@@ -236,6 +799,7 @@ class _FallbackMainModel:
 
 _REPO_FILE_CACHE: Dict[str, List[str]] = {}
 _REPO_MAP_CACHE: Dict[Tuple[str, int], str] = {}
+INSTANCE_PREVIEW_LIMIT = 60
 
 
 class ReadOnlyRepoTools:
@@ -353,59 +917,113 @@ class ReadOnlyRepoTools:
         except ValueError:
             return False
 
+    def _known_repo_prefixes(self) -> List[str]:
+        base = self.repo_root.name.lower()
+        prefixes = {
+            base,
+            base.replace("-", "_"),
+            base.replace("_", "-"),
+            "sympy",
+            "keras",
+            "xarray",
+            "faker",
+            "telegram",
+            "telegram_bot",
+            "python-telegram-bot",
+        }
+        return sorted(x for x in prefixes if x)
+
+    def _to_user_path(self, p: Path) -> str:
+        resolved = p.resolve(strict=False)
+        try:
+            rel = resolved.relative_to(self.repo_root)
+            return str(rel) if str(rel) else "."
+        except ValueError:
+            pass
+        try:
+            rel = resolved.relative_to(self.instance_dir)
+            return str(rel) if str(rel) else "."
+        except ValueError:
+            return str(resolved)
+
     def _resolve_user_path(self, raw_path: str) -> Path:
         raw = raw_path.strip()
         if not raw:
             raise ValueError("path cannot be empty")
 
         candidate_paths: List[Path] = []
+        seen_candidates: set = set()
+        known_prefixes = self._known_repo_prefixes()
+
+        def _add_candidate(path: Path) -> None:
+            key = str(path)
+            if key in seen_candidates:
+                return
+            seen_candidates.add(key)
+            candidate_paths.append(path)
+
         p = Path(raw)
         if p.is_absolute():
-            candidate_paths.append(p)
+            _add_candidate(p)
+            # Some model outputs duplicate repo folder prefix: <repo>/<repo>/...
+            resolved_abs = p.resolve(strict=False)
+            try:
+                rel = resolved_abs.relative_to(self.repo_root)
+                if rel.parts and rel.parts[0].lower() in known_prefixes and len(rel.parts) > 1:
+                    _add_candidate(self.repo_root / Path(*rel.parts[1:]))
+            except ValueError:
+                pass
         else:
-            candidate_paths.append(self.repo_root / p)
-            candidate_paths.append(self.instance_dir / p)
-            candidate_paths.append(self.instance_dir / "files" / p)
+            _add_candidate(self.repo_root / p)
+            _add_candidate(self.instance_dir / p)
+            _add_candidate(self.instance_dir / "files" / p)
 
             # Common benchmark hint paths often include top-level package dir
             # (e.g. sympy/core/...) while repo_root is already that package root.
             parts = p.parts
             if len(parts) > 1:
                 first = parts[0].lower()
-                repo_name = self.repo_root.name.lower()
-                known_prefixes = {
-                    repo_name,
-                    "sympy",
-                    "keras",
-                    "xarray",
-                    "faker",
-                    "telegram",
-                    "telegram_bot",
-                    "python-telegram-bot",
-                }
                 if first in known_prefixes:
-                    candidate_paths.append(self.repo_root / Path(*parts[1:]))
+                    stripped = Path(*parts[1:])
+                    _add_candidate(self.repo_root / stripped)
+                    _add_candidate(self.instance_dir / stripped)
+                    _add_candidate(self.instance_dir / "files" / stripped)
+
+            # Instance fixtures are often under files/<repo_prefix>/...
+            for prefix in known_prefixes:
+                _add_candidate(self.instance_dir / "files" / prefix / p)
 
             # tests/qa/... generally lives under instance_dir/files/tests/qa/...
             if str(p).startswith("tests/"):
-                candidate_paths.append(self.instance_dir / "files" / p)
+                _add_candidate(self.instance_dir / "files" / p)
+                for prefix in known_prefixes:
+                    _add_candidate(self.instance_dir / "files" / prefix / p)
 
-        # Also allow './' and redundant separators by normalize via resolve(strict=False)
+        allowed_candidates: List[Path] = []
         for cand in candidate_paths:
             resolved = cand.resolve(strict=False)
             if self._is_under_allowed_roots(resolved):
-                # If absolute path points at instance_dir/tests/... but files are under
-                # instance_dir/files/tests/..., patch it transparently.
-                if not resolved.exists():
-                    try:
-                        rel_to_instance = resolved.relative_to(self.instance_dir)
-                        if rel_to_instance.parts and rel_to_instance.parts[0] == "tests":
-                            fixed = (self.instance_dir / "files" / rel_to_instance).resolve(strict=False)
-                            if self._is_under_allowed_roots(fixed):
-                                return fixed
-                    except ValueError:
-                        pass
+                allowed_candidates.append(resolved)
+
+        # Prefer an existing path to avoid unnecessary failed read attempts.
+        for resolved in allowed_candidates:
+            if resolved.exists():
                 return resolved
+
+        # If absolute path points at instance_dir/tests/... but files are under
+        # instance_dir/files/tests/..., patch it transparently.
+        for resolved in allowed_candidates:
+            try:
+                rel_to_instance = resolved.relative_to(self.instance_dir)
+            except ValueError:
+                continue
+            if rel_to_instance.parts and rel_to_instance.parts[0] == "tests":
+                fixed = (self.instance_dir / "files" / rel_to_instance).resolve(strict=False)
+                if self._is_under_allowed_roots(fixed) and fixed.exists():
+                    return fixed
+
+        if allowed_candidates:
+            return allowed_candidates[0]
 
         raise ValueError(
             f"path '{raw_path}' is outside allowed roots: {self.repo_root} and {self.instance_dir}"
@@ -428,7 +1046,7 @@ class ReadOnlyRepoTools:
             return ToolResult(
                 ok=True,
                 payload={
-                    "repo_root": str(self.repo_root),
+                    "repo_root": self._to_user_path(self.repo_root),
                     "repo_file_count": len(self._all_repo_files()),
                     "focus_file_count": 0,
                     "repo_map": _REPO_MAP_CACHE[cache_key],
@@ -452,7 +1070,7 @@ class ReadOnlyRepoTools:
         return ToolResult(
             ok=True,
             payload={
-                "repo_root": str(self.repo_root),
+                "repo_root": self._to_user_path(self.repo_root),
                 "repo_file_count": len(all_files),
                 "focus_file_count": len(chat_files),
                 "repo_map": repomap_text,
@@ -466,16 +1084,16 @@ class ReadOnlyRepoTools:
             return ToolResult(ok=False, payload={"error": str(exc)})
 
         if not target.exists():
-            return ToolResult(ok=False, payload={"error": f"path does not exist: {target}"})
+            return ToolResult(ok=False, payload={"error": f"path does not exist: {self._to_user_path(target)}"})
         if not target.is_dir():
-            return ToolResult(ok=False, payload={"error": f"not a directory: {target}"})
+            return ToolResult(ok=False, payload={"error": f"not a directory: {self._to_user_path(target)}"})
 
         max_entries = max(1, min(int(max_entries), 1000))
         entries = []
         for item in sorted(target.iterdir(), key=lambda p: p.name)[:max_entries]:
             entry = {
                 "name": item.name,
-                "path": str(item),
+                "path": self._to_user_path(item),
                 "type": "dir" if item.is_dir() else "file",
             }
             if item.is_file():
@@ -485,7 +1103,7 @@ class ReadOnlyRepoTools:
                     pass
             entries.append(entry)
 
-        return ToolResult(ok=True, payload={"path": str(target), "entries": entries})
+        return ToolResult(ok=True, payload={"path": self._to_user_path(target), "entries": entries})
 
     def read_file(self, path: str, start_line: int = 1, end_line: int = 250) -> ToolResult:
         try:
@@ -494,9 +1112,9 @@ class ReadOnlyRepoTools:
             return ToolResult(ok=False, payload={"error": str(exc)})
 
         if not target.exists():
-            return ToolResult(ok=False, payload={"error": f"path does not exist: {target}"})
+            return ToolResult(ok=False, payload={"error": f"path does not exist: {self._to_user_path(target)}"})
         if not target.is_file():
-            return ToolResult(ok=False, payload={"error": f"not a file: {target}"})
+            return ToolResult(ok=False, payload={"error": f"not a file: {self._to_user_path(target)}"})
 
         start_line = max(1, int(start_line))
         end_line = max(start_line, int(end_line))
@@ -514,7 +1132,7 @@ class ReadOnlyRepoTools:
         e_idx = min(end_line, total)
 
         selected = lines[s_idx:e_idx]
-        numbered = "\n".join(f"{i + start_line:6d}: {line}" for i, line in enumerate(selected))
+        numbered = "\n".join(f"{i + start_line}:{line}" for i, line in enumerate(selected))
         truncated = False
         if len(numbered) > self.max_read_chars:
             numbered = numbered[: self.max_read_chars]
@@ -523,7 +1141,7 @@ class ReadOnlyRepoTools:
         return ToolResult(
             ok=True,
             payload={
-                "path": str(target),
+                "path": self._to_user_path(target),
                 "start_line": start_line,
                 "end_line": e_idx,
                 "total_lines": total,
@@ -608,10 +1226,77 @@ class ProviderRunner:
         self.max_tool_rounds = max_tool_rounds
         self.temperature = temperature
         self.trace = trace
+        self._usage = empty_usage(provider, model)
 
     def _t(self, msg: str) -> None:
         if self.trace:
             self.trace(msg)
+
+    @staticmethod
+    def _get_field(obj: Any, key: str, default: Any = None) -> Any:
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _inc_usage(self, key: str, value: Any) -> None:
+        n = _to_int_or_none(value)
+        if n is None:
+            return
+        self._usage[key] = int(self._usage.get(key, 0)) + max(0, n)
+
+    def _record_usage(self, source: str, usage_obj: Any) -> None:
+        self._inc_usage("requests", 1)
+        if usage_obj is None:
+            self._inc_usage("usage_missing_requests", 1)
+            return
+
+        g = self._get_field
+        if source.startswith("openai-chat") or source.startswith("openai-legacy"):
+            self._inc_usage("input_tokens", g(usage_obj, "prompt_tokens"))
+            self._inc_usage("output_tokens", g(usage_obj, "completion_tokens"))
+            self._inc_usage("total_tokens", g(usage_obj, "total_tokens"))
+            pdetails = g(usage_obj, "prompt_tokens_details")
+            cdetails = g(usage_obj, "completion_tokens_details")
+            self._inc_usage("cached_input_tokens", g(pdetails, "cached_tokens"))
+            self._inc_usage("reasoning_tokens", g(cdetails, "reasoning_tokens"))
+        elif source.startswith("openai-responses"):
+            self._inc_usage("input_tokens", g(usage_obj, "input_tokens"))
+            self._inc_usage("output_tokens", g(usage_obj, "output_tokens"))
+            self._inc_usage("total_tokens", g(usage_obj, "total_tokens"))
+            idetails = g(usage_obj, "input_tokens_details")
+            odetails = g(usage_obj, "output_tokens_details")
+            self._inc_usage("cached_input_tokens", g(idetails, "cached_tokens"))
+            self._inc_usage("cached_input_tokens", g(idetails, "cached_input_tokens"))
+            self._inc_usage("reasoning_tokens", g(odetails, "reasoning_tokens"))
+        elif source.startswith("gemini"):
+            self._inc_usage("input_tokens", g(usage_obj, "prompt_token_count"))
+            self._inc_usage("output_tokens", g(usage_obj, "candidates_token_count"))
+            self._inc_usage("total_tokens", g(usage_obj, "total_token_count"))
+            self._inc_usage("cached_input_tokens", g(usage_obj, "cached_content_token_count"))
+        elif source.startswith("anthropic"):
+            self._inc_usage("input_tokens", g(usage_obj, "input_tokens"))
+            self._inc_usage("output_tokens", g(usage_obj, "output_tokens"))
+            self._inc_usage("cache_creation_input_tokens", g(usage_obj, "cache_creation_input_tokens"))
+            self._inc_usage("cache_read_input_tokens", g(usage_obj, "cache_read_input_tokens"))
+            # Anthropic cache read tokens are input-side cached tokens.
+            self._inc_usage("cached_input_tokens", g(usage_obj, "cache_read_input_tokens"))
+        else:
+            self._inc_usage("input_tokens", g(usage_obj, "input_tokens"))
+            self._inc_usage("output_tokens", g(usage_obj, "output_tokens"))
+            self._inc_usage("total_tokens", g(usage_obj, "total_tokens"))
+
+        if int(self._usage.get("total_tokens", 0)) <= 0:
+            self._usage["total_tokens"] = int(self._usage.get("input_tokens", 0)) + int(
+                self._usage.get("output_tokens", 0)
+            )
+
+    def usage_summary(self) -> Dict[str, Any]:
+        out = dict(self._usage)
+        if int(out.get("total_tokens", 0)) <= 0:
+            out["total_tokens"] = int(out.get("input_tokens", 0)) + int(out.get("output_tokens", 0))
+        return out
 
     def run(
         self,
@@ -689,6 +1374,7 @@ class ProviderRunner:
                 function_call="auto",
                 temperature=self.temperature,
             )
+            self._record_usage("openai-legacy", self._get_field(resp, "usage"))
             msg = resp["choices"][0]["message"]
             self._t(f"[openai-legacy] assistant: {msg.get('content', '') or ''}")
             function_call = msg.get("function_call")
@@ -744,6 +1430,7 @@ class ProviderRunner:
                 tool_choice="auto",
                 temperature=self.temperature,
             )
+            self._record_usage("openai-chat", getattr(resp, "usage", None))
             msg = resp.choices[0].message
             self._t(f"[openai-chat] assistant: {msg.content or ''}")
 
@@ -805,6 +1492,7 @@ class ProviderRunner:
             tools=tools,
             temperature=self.temperature,
         )
+        self._record_usage("openai-responses", getattr(response, "usage", None))
 
         for _ in range(self.max_tool_rounds):
             self._t("[openai-responses] request")
@@ -838,6 +1526,7 @@ class ProviderRunner:
                     tools=tools,
                     temperature=self.temperature,
                 )
+                self._record_usage("openai-responses", getattr(response, "usage", None))
                 continue
 
             text = getattr(response, "output_text", None)
@@ -896,6 +1585,7 @@ class ProviderRunner:
                 contents=contents,
                 config=config,
             )
+            self._record_usage("gemini", getattr(resp, "usage_metadata", None))
 
             function_calls = list(resp.function_calls or [])
             if function_calls:
@@ -946,6 +1636,7 @@ class ProviderRunner:
                 tools=tools,
                 temperature=self.temperature,
             )
+            self._record_usage("anthropic", getattr(resp, "usage", None))
 
             tool_uses = [block for block in resp.content if block.type == "tool_use"]
             if tool_uses:
@@ -983,14 +1674,13 @@ class ProviderRunner:
 
 def make_system_prompt() -> str:
     return (
-        "You are solving repository QA benchmark instances in READ-ONLY mode. "
-        "You must not assume code execution is available. "
-        "Use tools to inspect repository structure and file contents only.\n\n"
+        "Solve repository QA in read-only mode with tool calls only.\n"
         "Rules:\n"
-        "1. Use get_repo_map first, then list_dir/read_file as needed.\n"
-        "2. Read only the files needed for the question.\n"
-        "3. Final answer MUST be exactly one JSON object matching template_answer keys and value types.\n"
-        "4. Do not output markdown or explanations in the final answer."
+        "1. Call get_repo_map first, then use list_dir/read_file only as needed.\n"
+        "2. Prefer relative paths. Repo files are usually like src/...; instance files are usually files/....\n"
+        "3. Minimize unnecessary reads and repeated failed paths.\n"
+        "4. Final output must be exactly one JSON object matching template_answer keys and value types.\n"
+        "5. Do not output markdown or explanations in the final answer."
     )
 
 
@@ -1004,15 +1694,21 @@ def build_user_prompt(
     question = question_data.get("question", "")
     template_answer = question_data.get("template_answer", {})
     question_kind = question_data.get("question_kind", "unknown")
+    template_str = json.dumps(template_answer, sort_keys=True, separators=(",", ":"))
 
-    preview_str = "\n".join(f"- {p}" for p in instance_files_preview[:200])
+    preview_files = instance_files_preview[:INSTANCE_PREVIEW_LIMIT]
+    preview_lines = [f"- {p}" for p in preview_files]
+    omitted_count = len(instance_files_preview) - len(preview_files)
+    if omitted_count > 0:
+        preview_lines.append(f"- ... ({omitted_count} more files)")
+    preview_str = "\n".join(preview_lines)
 
     return (
         f"Repository root: {repo_root}\n"
         f"Instance directory: {instance_dir}\n"
         f"Question kind: {question_kind}\n\n"
         f"Question:\n{question}\n\n"
-        f"Template answer (must match exactly):\n{json.dumps(template_answer, indent=2, sort_keys=True)}\n\n"
+        f"Template answer (must match exactly):\n{template_str}\n\n"
         "Instance file preview (you can read these and repository files with tools):\n"
         f"{preview_str if preview_str else '- (no files)'}\n\n"
         "Task: return only the final JSON answer object."
@@ -1111,12 +1807,32 @@ def run_single_instance(
         instance_files_preview=instance_files,
     )
 
+    template = question_data.get("template_answer", {})
     raw_response = runner.run(system_prompt=system_prompt, user_prompt=user_prompt, tool_callback=tool_callback)
     if trace:
         trace(f"[final-raw] {raw_response}")
     parsed = extract_first_json_object(raw_response)
 
-    template = question_data.get("template_answer", {})
+    coercion_notes: List[str] = []
+
+    def _apply_coercion() -> None:
+        nonlocal parsed
+        if parsed is None:
+            return
+        coerced, notes = coerce_against_template(parsed, template)
+        parsed = coerced
+        if not notes:
+            return
+        remaining = 200 - len(coercion_notes)
+        if remaining > 0:
+            coercion_notes.extend(notes[:remaining])
+        if trace:
+            preview = "; ".join(notes[:12])
+            if len(notes) > 12:
+                preview += "; ..."
+            trace(f"[coerce] {preview}")
+
+    _apply_coercion()
 
     repair_messages: List[str] = []
     repair_attempts = 0
@@ -1134,7 +1850,7 @@ def run_single_instance(
             f"Your previous answer was invalid.\n"
             f"Error: {err}\n"
             f"Return ONLY one valid JSON object matching this template:\n"
-            f"{json.dumps(template, indent=2, sort_keys=True)}"
+            f"{json.dumps(template, sort_keys=True, separators=(',', ':'))}"
         )
         repair_messages.append(err)
 
@@ -1144,6 +1860,7 @@ def run_single_instance(
             tool_callback=tool_callback,
         )
         parsed = extract_first_json_object(raw_response)
+        _apply_coercion()
 
     if parsed is None:
         raise RuntimeError("Could not extract valid JSON from model response")
@@ -1152,10 +1869,17 @@ def run_single_instance(
     if final_errors:
         raise RuntimeError("Final answer failed template validation: " + "; ".join(final_errors))
 
+    usage = runner.usage_summary()
+    cost = compute_usage_cost_for_model(provider=provider, model=model, usage=usage)
+
     debug = {
         "question_path": str(question_path),
         "repair_attempts": repair_attempts,
         "repair_errors": repair_messages,
+        "coercion_note_count": len(coercion_notes),
+        "coercion_notes": coercion_notes,
+        "usage": usage,
+        "cost": cost,
         "raw_response": raw_response,
     }
     return parsed, debug
@@ -1215,6 +1939,7 @@ def worker_main(args: argparse.Namespace) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         answer_path = out_dir / "answer.json"
         log_path = out_dir / "llm.log"
+        usage_path = out_dir / "usage.json"
 
         print(f"[worker][{idx}/{len(instance_ids)}] {instance_id}")
 
@@ -1232,6 +1957,22 @@ def worker_main(args: argparse.Namespace) -> int:
                 max_repair_rounds=args.max_repair_rounds,
             )
             dump_json(answer_path, answer)
+            usage_payload = {
+                "status": "ok",
+                "instance": instance_id,
+                "provider": args.provider,
+                "model": args.model,
+                "usage": debug.get("usage", empty_usage(args.provider, args.model)),
+                "cost": debug.get(
+                    "cost",
+                    compute_usage_cost_for_model(
+                        provider=args.provider,
+                        model=args.model,
+                        usage=empty_usage(args.provider, args.model),
+                    ),
+                ),
+            }
+            dump_json(usage_path, usage_payload)
             log_path.write_text(
                 json.dumps(
                     {
@@ -1253,8 +1994,25 @@ def worker_main(args: argparse.Namespace) -> int:
                 "traceback": traceback.format_exc(),
             }
             log_path.write_text(json.dumps(err_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            dump_json(
+                usage_path,
+                {
+                    "status": "error",
+                    "instance": instance_id,
+                    "provider": args.provider,
+                    "model": args.model,
+                    "usage": empty_usage(args.provider, args.model),
+                    "cost": compute_usage_cost_for_model(
+                        provider=args.provider,
+                        model=args.model,
+                        usage=empty_usage(args.provider, args.model),
+                    ),
+                    "error": str(exc),
+                },
+            )
             # Do not write malformed answer.json on errors.
 
+    write_repo_usage_file(out_repo_root, args.provider, args.model)
     return 0
 
 
@@ -1492,9 +2250,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Shared runtime args
     p.add_argument("--max-tool-rounds", type=int, default=24)
-    p.add_argument("--repomap-tokens", type=int, default=8192)
+    p.add_argument("--repomap-tokens", type=int, default=6144)
     p.add_argument("--max-read-lines", type=int, default=300)
-    p.add_argument("--max-read-chars", type=int, default=120000)
+    p.add_argument("--max-read-chars", type=int, default=90000)
     p.add_argument("--max-repair-rounds", type=int, default=2)
     p.add_argument("--temperature", type=float, default=0.0)
 

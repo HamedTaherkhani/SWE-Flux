@@ -239,6 +239,7 @@ def run_repo(
         answer_path = out_dir / "answer.json"
         log_path = out_dir / "llm.log"
         traj_path = out_dir / "traj.json"
+        usage_path = out_dir / "usage.json"
 
         if resume and answer_path.exists() and answer_path.stat().st_size > 0:
             print(f"[{repo_name}][{idx}/{len(selected_ids)}] {instance_id} (skip: answer exists)")
@@ -269,6 +270,24 @@ def run_repo(
             )
             core.dump_json(answer_path, answer)
             core.dump_json(
+                usage_path,
+                {
+                    "status": "ok",
+                    "instance": instance_id,
+                    "provider": provider,
+                    "model": model,
+                    "usage": debug.get("usage", core.empty_usage(provider, model)),
+                    "cost": debug.get(
+                        "cost",
+                        core.compute_usage_cost_for_model(
+                            provider=provider,
+                            model=model,
+                            usage=core.empty_usage(provider, model),
+                        ),
+                    ),
+                },
+            )
+            core.dump_json(
                 traj_path,
                 {
                     "status": "ok",
@@ -296,8 +315,26 @@ def run_repo(
                 "error": str(exc),
                 "traceback": traceback.format_exc(),
             }
+            core.dump_json(
+                usage_path,
+                {
+                    "status": "error",
+                    "instance": instance_id,
+                    "provider": provider,
+                    "model": model,
+                    "usage": core.empty_usage(provider, model),
+                    "cost": core.compute_usage_cost_for_model(
+                        provider=provider,
+                        model=model,
+                        usage=core.empty_usage(provider, model),
+                    ),
+                    "error": str(exc),
+                },
+            )
 
         log_path.write_text(json.dumps(log_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    core.write_repo_usage_file(out_repo_root, provider, model)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -354,9 +391,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p.add_argument("--max-tool-rounds", type=int, default=24)
-    p.add_argument("--repomap-tokens", type=int, default=8192)
+    p.add_argument("--repomap-tokens", type=int, default=6144)
     p.add_argument("--max-read-lines", type=int, default=300)
-    p.add_argument("--max-read-chars", type=int, default=120000)
+    p.add_argument("--max-read-chars", type=int, default=90000)
     p.add_argument("--max-repair-rounds", type=int, default=2)
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument(

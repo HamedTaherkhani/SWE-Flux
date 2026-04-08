@@ -244,6 +244,12 @@ Optional:
 
 ## LLM + RepoMap Evaluation (Host-only, Read-only)
 
+# Make sure to first run this:
+
+```bash
+conda activate repo
+```
+
 Script: `evaluation_scripts/run_llm_repomap_eval_host.py`
 
 This flow is host-side and read-only:
