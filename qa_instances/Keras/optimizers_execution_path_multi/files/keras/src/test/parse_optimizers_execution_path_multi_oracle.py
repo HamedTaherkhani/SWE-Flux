@@ -7,6 +7,11 @@ import re
 from pathlib import Path
 
 
+# The benchmark defines the execution path as the ordered sequence of
+# trace `event=line` records seen in `base_optimizer.py` and `sgd.py`
+# across the entire test method. That includes repeated line visits and
+# lines executed during optimizer construction and setup before `apply()`.
+
 LINE_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2} .*? (/testbed/keras/src/optimizers/[^:]+):(\d+) ([^ ]+) ",
     re.MULTILINE,
@@ -65,11 +70,14 @@ def main() -> None:
             "`variable=[1.0, -1.0]` (float32), "
             "`optimizer=SGD(learning_rate=0.2, momentum=0.9, nesterov=True, clipvalue=0.5)`, "
             "and input gradient tensor `grads[0]=[1.7, -0.3]` (float32). "
-            "When calling `optimizer.apply(grads, [variable])`, what exact execution "
-            "path is taken across optimizer project files? Return the ordered full path "
-            "as entries of `{file, line, func}` for "
-            "`keras/src/optimizers/base_optimizer.py` and "
-            "`keras/src/optimizers/sgd.py`."
+            "Return a JSON object with key `executed_path` whose value is the exact ordered "
+            "line-level trace path across `keras/src/optimizers/base_optimizer.py` and "
+            "`keras/src/optimizers/sgd.py` for the entire test-method execution in those files, "
+            "not just the dynamic extent of the `optimizer.apply(grads, [variable])` call. "
+            "Include repeated visits, and include lines executed during optimizer construction, "
+            "build/setup, and the subsequent `apply(...)` call. Each path entry must be an ordered "
+            "`{file, line, func}` item corresponding to one traced `event=line` record from those "
+            "two files."
         ),
         "oracle_answer": {
             "executed_path": execution_path,

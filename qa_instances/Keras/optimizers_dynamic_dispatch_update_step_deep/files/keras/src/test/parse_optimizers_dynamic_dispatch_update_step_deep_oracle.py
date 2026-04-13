@@ -17,6 +17,11 @@ DISPATCH_CALLSITE_FUNC = (
 )
 DISPATCH_CALLSITE_FILE = "keras/src/optimizers/base_optimizer.py"
 DISPATCH_CALLSITE_LINE = 454
+# The benchmark anchors this question at the outer trace-visible dispatch site
+# in `_backend_apply_gradients`, not at the inner helper `_backend_update_step`.
+# The graded `dispatched_function` is the first non-`base_optimizer.py`
+# `.update_step` call that appears after that anchor in the trace log, reported
+# using the trace log's module-level function identifier.
 
 
 def infer_class_name(file_path: str) -> str:
@@ -96,8 +101,17 @@ def main() -> None:
             "`keras/src/optimizers/base_optimizer.py` at line 454 inside "
             "`_backend_apply_gradients`, the code enters the update-dispatch path "
             "that invokes `update_step(...)` on the concrete optimizer. "
-            "Which concrete class's `update_step` implementation was actually executed "
-            "for that dispatched call?"
+            "Return a JSON object with exactly these fields: `concrete_class`, "
+            "`dispatch_callsite`, `dispatched_file`, and `dispatched_function`. "
+            "For `dispatch_callsite`, report the outer trace-visible dispatch anchor as "
+            "`{file: 'keras/src/optimizers/base_optimizer.py', line: 454, func: "
+            "'keras.src.optimizers.base_optimizer._backend_apply_gradients'}`. "
+            "For `dispatched_file` and `dispatched_function`, report the first "
+            "non-`base_optimizer.py` `.update_step` call reached after that anchor, "
+            "using the trace log's fully qualified module-level function identifier "
+            "(not an inner helper such as `_backend_update_step` and not a bound-method "
+            "label such as `Adam.update_step`). Which concrete class's `update_step` "
+            "implementation was actually executed for that dispatched call?"
         ),
         "oracle_answer": {
             "dispatch_callsite": {

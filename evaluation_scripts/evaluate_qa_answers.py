@@ -4,7 +4,9 @@
 Usage:
   python3 evaluation_scripts/evaluate_qa_answers.py --tool cursor --model gpt-5.3-codex-high --repo Sympy
   python3 evaluation_scripts/evaluate_qa_answers.py --tool cursor --model gpt-5.3-codex-high --repo all
+  python3 evaluation_scripts/evaluate_qa_answers.py --tool cursor --model gpt-5.3-codex-high
   python3 evaluation_scripts/evaluate_qa_answers.py --tool llm --vendor openai --model gpt-5.4-2026-03-05 --repo Sympy
+  python3 evaluation_scripts/evaluate_qa_answers.py --tool llm --vendor openai --model gpt-5.4-2026-03-05
   python3 evaluation_scripts/evaluate_qa_answers.py --all
 """
 
@@ -235,17 +237,6 @@ def pct(part: int, whole: int) -> float:
     return 0.0 if whole == 0 else (part / whole) * 100.0
 
 
-def has_instance_dirs(repo_root: Path) -> bool:
-    if not repo_root.exists() or not repo_root.is_dir():
-        return False
-    for p in repo_root.iterdir():
-        if not p.is_dir():
-            continue
-        if (p / "question.json").exists() or (p / "oracle.json").exists():
-            return True
-    return False
-
-
 def has_prediction_dirs(pred_repo_root: Path) -> bool:
     if not pred_repo_root.exists() or not pred_repo_root.is_dir():
         return False
@@ -255,11 +246,19 @@ def has_prediction_dirs(pred_repo_root: Path) -> bool:
     return False
 
 
-def discover_repo_names(qa_root: Path) -> List[str]:
-    if not qa_root.exists():
-        return []
-    repos = [p.name for p in qa_root.iterdir() if p.is_dir() and has_instance_dirs(p)]
-    return sorted(repos)
+def discover_repos_for_scope(eval_root: Path, tool: str, model: str, vendor: Optional[str]) -> Tuple[Path, List[str]]:
+    if tool.lower() == "llm":
+        if not vendor:
+            raise SystemExit("For --tool llm when evaluating all repos, pass --vendor (e.g. --vendor openai).")
+        model_root = eval_root / "llm" / vendor.lower() / model
+    else:
+        model_root = eval_root / tool / model
+
+    if not model_root.exists() or not model_root.is_dir():
+        return model_root, []
+
+    repos = [p.name for p in model_root.iterdir() if p.is_dir() and has_prediction_dirs(p)]
+    return model_root, sorted(repos)
 
 
 def discover_instance_names(qa_repo_root: Path, pred_repo_root: Path) -> List[str]:
@@ -490,8 +489,11 @@ def main() -> None:
         default=None,
         help="Vendor name for --tool llm (e.g. openai, gemini, anthropic)",
     )
-    parser.add_argument("--model", help="Model name under evaluations/<tool>/")
-    parser.add_argument("--repo", help="Repository name (e.g. Sympy) or 'all'")
+    parser.add_argument("--model", help="Model name under evaluations/<tool>/ (or evaluations/llm/<vendor>/ for --tool llm)")
+    parser.add_argument(
+        "--repo",
+        help="Repository name (e.g. Sympy). Omit or use 'all' to evaluate all repos under the selected tool/model scope.",
+    )
     parser.add_argument("--all", action="store_true", help="Aggregate all available results across all tools/vendors/models/repos.")
     parser.add_argument("--qa-root", default=str(REPO_ROOT / "qa_instances"))
     parser.add_argument("--eval-root", default=str(REPO_ROOT / "evaluations"))
@@ -546,30 +548,38 @@ def main() -> None:
                 print(f"- {target.label()}: {reason}")
         return
 
-    if not args.tool or not args.model or not args.repo:
-        parser.error("When --all is not set, --tool, --model, and --repo are required.")
+    if not args.tool or not args.model:
+        parser.error("When --all is not set, --tool and --model are required.")
 
-    if args.repo.lower() == "all":
-        if args.tool.lower() == "llm" and not vendor:
-            parser.error("For --tool llm with --repo all, pass --vendor.")
+    repo_selector = args.repo or "all"
 
-        repos = discover_repo_names(qa_root)
+    if repo_selector.lower() == "all":
+        scope_root, repos = discover_repos_for_scope(
+            eval_root=eval_root,
+            tool=args.tool,
+            model=args.model,
+            vendor=vendor,
+        )
         if not repos:
-            raise SystemExit(f"No repositories found under {qa_root}")
+            raise SystemExit(f"No repositories with predictions found under {scope_root}")
 
         results: List[Tuple[EvalTarget, EvalStats]] = []
+        skipped: List[Tuple[EvalTarget, str]] = []
         aggregate = EvalStats()
         for repo in repos:
             target = EvalTarget(tool=args.tool, vendor=vendor, model=args.model, repo=repo)
-            stats = evaluate_target(
-                target=target,
-                qa_root=qa_root,
-                eval_root=eval_root,
-                float_tol=args.float_tol,
-                require_prediction_root=False,
-            )
-            results.append((target, stats))
-            merge_stats(aggregate, stats)
+            try:
+                stats = evaluate_target(
+                    target=target,
+                    qa_root=qa_root,
+                    eval_root=eval_root,
+                    float_tol=args.float_tol,
+                    require_prediction_root=True,
+                )
+                results.append((target, stats))
+                merge_stats(aggregate, stats)
+            except SystemExit as exc:
+                skipped.append((target, str(exc)))
 
         summary_lines = [f"tool: {args.tool}"]
         if vendor:
@@ -579,15 +589,21 @@ def main() -> None:
                 f"model: {args.model}",
                 "repo: all",
                 f"repos_evaluated: {len(results)}",
+                f"repos_skipped: {len(skipped)}",
             ]
         )
         print_summary(scope_lines=summary_lines, stats=aggregate)
         print_target_accuracies("Per-repo accuracy", results, repo_only=True)
         print_per_kind_accuracy(aggregate)
         print_failed_instances(aggregate, single_repo=None)
+
+        if skipped:
+            print("\nSkipped repos")
+            for target, reason in sorted(skipped, key=lambda x: x[0].repo):
+                print(f"- {target.repo}: {reason}")
         return
 
-    target = EvalTarget(tool=args.tool, vendor=vendor, model=args.model, repo=args.repo)
+    target = EvalTarget(tool=args.tool, vendor=vendor, model=args.model, repo=repo_selector)
     stats = evaluate_target(
         target=target,
         qa_root=qa_root,
@@ -599,10 +615,10 @@ def main() -> None:
     summary_lines = [f"tool: {args.tool}"]
     if vendor:
         summary_lines.append(f"vendor: {vendor}")
-    summary_lines.extend([f"model: {args.model}", f"repo: {args.repo}"])
+    summary_lines.extend([f"model: {args.model}", f"repo: {repo_selector}"])
     print_summary(scope_lines=summary_lines, stats=stats)
     print_per_kind_accuracy(stats)
-    print_failed_instances(stats, single_repo=args.repo)
+    print_failed_instances(stats, single_repo=repo_selector)
 
 
 if __name__ == "__main__":

@@ -52,9 +52,13 @@ def _datasets_count(value_repr: str) -> int:
     return value_repr.count("Dataset>")
 
 
+def _sorted_distinct_ints(values: list[int]) -> list[int]:
+    return sorted(set(values))
+
+
 def extract_invariant(trace_text: str, source_text: str) -> dict[str, object]:
     _probe_line(source_text)  # structural check that target loop exists
-    observed_lens: list[int] = []
+    observed_lens_all: list[int] = []
     pair_observations: list[tuple[int, int]] = []
     current_dataset_count: int | None = None
 
@@ -71,17 +75,17 @@ def extract_invariant(trace_text: str, source_text: str) -> dict[str, object]:
 
         if "tile_ids" in locals_map:
             tile_len = _tile_ids_len(locals_map["tile_ids"])
-            observed_lens.append(tile_len)
+            observed_lens_all.append(tile_len)
             if current_dataset_count is not None:
                 pair_observations.append((tile_len, current_dataset_count))
 
-    if not observed_lens or not pair_observations:
+    if not observed_lens_all or not pair_observations:
         raise ValueError("No loop observations found for tile_ids length.")
 
     holds = all(tile_len == ds_count for tile_len, ds_count in pair_observations)
     return {
         "holds_across_all_loop_iterations": holds,
-        "observed_tile_ids_lengths": sorted(set(observed_lens)),
+        "observed_tile_ids_lengths": _sorted_distinct_ints(observed_lens_all),
     }
 
 
@@ -115,9 +119,10 @@ def main() -> None:
             "version), specifically the loop `for dim in ds0.dims:`. In this question, an invariant means "
             "a condition that must remain true at every checked loop iteration during execution. Evaluate "
             "whether `len(tile_ids)` equals the number of input datasets at each checked iteration. Here, "
-            "`observed_tile_ids_lengths` means the list of concrete `len(tile_ids)` values recorded at "
-            "those loop-check points across the full executed suite. Return whether the condition holds "
-            "across all checked iterations and the recorded `observed_tile_ids_lengths`."
+            "`observed_tile_ids_lengths` means the sorted list of distinct concrete `len(tile_ids)` values "
+            "recorded at those loop-check points across the full executed suite, with repeated observations "
+            "collapsed to one entry per length. Return whether the condition holds across all checked "
+            "iterations and the recorded `observed_tile_ids_lengths`."
         ),
         "template_answer": {
             "holds_across_all_loop_iterations": "bool",

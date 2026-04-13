@@ -88,8 +88,15 @@ def main() -> None:
             "then call `metric(y_true, y_pred, sample_weight=...)` followed by "
             "`metric(y_true, y_pred)` using the exact arrays in the test. In "
             "`keras/src/metrics/metric.py` at line 225 inside `Metric.__call__`, "
-            "the code calls `self.update_state(...)`. Which concrete class's "
-            "`update_state` implementation was actually executed for that dispatch?"
+            "the code calls `self.update_state(...)`. Report the dispatch result as "
+            "an object with four fields: `dispatch_callsite`, `dispatched_function`, "
+            "`dispatched_file`, and `concrete_class`. For `dispatch_callsite`, use "
+            "`keras/src/metrics/metric.py` at line 225 and the `Metric.__call__` "
+            "callsite function identifier. For `dispatched_function`, return the "
+            "module-level runtime function identifier from the trace event "
+            "(not a class-qualified method label). For `dispatched_file`, return the "
+            "source file path of that dispatched function. For `concrete_class`, return "
+            "the concrete metric class whose implementation handled the dispatch."
         ),
         "oracle_answer": {
             "dispatch_callsite": {

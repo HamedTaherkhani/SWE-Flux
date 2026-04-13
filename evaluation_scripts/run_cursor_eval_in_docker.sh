@@ -333,10 +333,20 @@ EOF
 
         : >"$RAW_TRAJ_OUT"
         cmd_status=0
+        agent_timeout_s=600
+        agent_kill_after_s=60
         if [[ -n "${CURSOR_API_KEY:-}" ]]; then
-          cursor-agent --api-key "$CURSOR_API_KEY" -p --force --output-format stream-json --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RAW_TRAJ_OUT" 2>"$RUN_LOG" || cmd_status=$?
+          if command -v timeout >/dev/null 2>&1; then
+            timeout -k "${agent_kill_after_s}s" "${agent_timeout_s}s" cursor-agent --api-key "$CURSOR_API_KEY" -p --force --output-format stream-json --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RAW_TRAJ_OUT" 2>"$RUN_LOG" || cmd_status=$?
+          else
+            cursor-agent --api-key "$CURSOR_API_KEY" -p --force --output-format stream-json --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RAW_TRAJ_OUT" 2>"$RUN_LOG" || cmd_status=$?
+          fi
         else
-          cursor-agent -p --force --output-format stream-json --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RAW_TRAJ_OUT" 2>"$RUN_LOG" || cmd_status=$?
+          if command -v timeout >/dev/null 2>&1; then
+            timeout -k "${agent_kill_after_s}s" "${agent_timeout_s}s" cursor-agent -p --force --output-format stream-json --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RAW_TRAJ_OUT" 2>"$RUN_LOG" || cmd_status=$?
+          else
+            cursor-agent -p --force --output-format stream-json --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT" >"$RAW_TRAJ_OUT" 2>"$RUN_LOG" || cmd_status=$?
+          fi
         fi
 
         PY_BIN="$(command -v python3 || command -v python || true)"
@@ -369,6 +379,11 @@ PY
 
         if (( cmd_status != 0 )); then
           printf "cursor-agent exited with status %s\n" "$cmd_status" >>"$RUN_LOG"
+          if (( cmd_status == 124 )); then
+            printf "cursor-agent timed out after %ss\n" "$agent_timeout_s" >>"$RUN_LOG"
+          elif (( cmd_status == 137 )); then
+            printf "cursor-agent was force-killed after timeout grace period (%ss)\n" "$agent_kill_after_s" >>"$RUN_LOG"
+          fi
         fi
 
         rm -f "$RAW_TRAJ_OUT"
@@ -378,6 +393,44 @@ PY
     if docker exec "$container_name" bash -lc "test -d '$container_repo_out/$instance_id'"; then
       docker cp "$container_name:$container_repo_out/$instance_id/." "$host_instance_out/" || true
       echo "[$repo][$((i + 1))/$LIMIT] persisted -> $host_instance_out"
+
+      host_raw_traj="$host_instance_out/traj.ndjson"
+      host_traj="$host_instance_out/traj.json"
+      if [[ ! -s "$host_traj" && -s "$host_raw_traj" ]]; then
+        host_py_bin="$(command -v python3 || command -v python || true)"
+        if [[ -n "$host_py_bin" ]]; then
+          "$host_py_bin" - "$host_raw_traj" "$host_traj" <<'PY'
+import json
+import sys
+
+src = sys.argv[1]
+dst = sys.argv[2]
+events = []
+
+with open(src, "r", encoding="utf-8", errors="replace") as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            events.append(json.loads(line))
+        except Exception:
+            events.append({"type": "raw_line", "text": line})
+
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump({"events": events}, f, indent=2, sort_keys=True)
+    f.write("\n")
+PY
+          if [[ -s "$host_traj" ]]; then
+            echo "[$repo][$((i + 1))/$LIMIT] recovered traj.json from traj.ndjson"
+          else
+            echo "[$repo][$((i + 1))/$LIMIT] WARN: failed to recover traj.json from traj.ndjson"
+          fi
+        else
+          cp "$host_raw_traj" "$host_traj" || true
+          echo "[$repo][$((i + 1))/$LIMIT] WARN: python not found; copied traj.ndjson to traj.json"
+        fi
+      fi
     else
       echo "[$repo][$((i + 1))/$LIMIT] WARN: no output dir produced for $instance_id"
     fi

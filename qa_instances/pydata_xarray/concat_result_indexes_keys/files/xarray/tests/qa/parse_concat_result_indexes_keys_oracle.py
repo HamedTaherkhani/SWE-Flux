@@ -102,6 +102,7 @@ def extract_result_indexes_keys(trace_text: str) -> dict[str, list[str]]:
         if "result_indexes" not in locals_map:
             continue
 
+        # Use the first trace snapshot where `result_indexes` becomes non-empty.
         keys = _extract_top_level_dict_keys(locals_map["result_indexes"])
         if keys:
             return {"result_indexes_keys": sorted(set(keys))}
@@ -132,9 +133,9 @@ def main() -> None:
             "`test_concat_result_indexes_keys_case`. "
             "At line 41, `xr.concat(...)` is called with `dim=pd.Index(['b0','b1','b2'], name='batch')`, "
             "which executes `xarray/core/concat.py::_dataset_concat`. "
-            "Inside `_dataset_concat`, focus on line 708 (`coords_obj = Coordinates(coord_vars, indexes=result_indexes)`), "
-            "right before the `Coordinates(...)` call. "
-            "What dictionary keys does variable `result_indexes` hold at that moment? "
+            "Inside `_dataset_concat`, consider the first trace snapshot in that function where local "
+            "variable `result_indexes` is non-empty. What top-level dictionary keys does `result_indexes` "
+            "hold in that first non-empty snapshot? "
             "Return them in sorted ascending order as `result_indexes_keys`."
         ),
         "template_answer": {

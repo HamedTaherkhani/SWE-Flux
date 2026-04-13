@@ -76,6 +76,7 @@ def extract_pairs(trace_text: str, source_text: str) -> dict[str, list[dict[str,
         for var in sorted(collector.uses_by_line.get(line, set())):
             if var in latest_def:
                 key = (var, latest_def[var], line)
+                # Preserve first-observed execution order for each distinct covered pair.
                 if key not in seen:
                     seen.add(key)
                     pairs.append({"var": var, "def_line": latest_def[var], "use_line": line})
@@ -119,7 +120,9 @@ def main() -> None:
             "Within `format_array_flat`, consider only variables "
             "`count`, `num_front`, `num_back`, `pprint_str`, `padding`, and `max_len`. "
             "Across the full test execution, what are ALL covered def-use pairs for those variables, "
-            "reported as objects with keys `var`, `def_line`, and `use_line`?"
+            "reported as objects with keys `var`, `def_line`, and `use_line`? Return "
+            "`covered_def_use_pairs` in the order each distinct pair is first covered during the "
+            "traced full execution."
         ),
         "template_answer": {
             "covered_def_use_pairs": [{"var": "str", "def_line": "int", "use_line": "int"}]

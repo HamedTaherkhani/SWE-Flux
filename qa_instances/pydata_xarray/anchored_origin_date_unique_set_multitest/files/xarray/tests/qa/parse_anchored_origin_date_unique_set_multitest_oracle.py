@@ -44,6 +44,11 @@ def _normalize_cftime_datetime(value_repr: str) -> str:
     return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
 
 
+def _sorted_normalized_unique(values: set[str]) -> list[str]:
+    # The normalized timestamp format sorts lexicographically in chronological order.
+    return sorted(values)
+
+
 def extract_unique_values(trace_text: str, source_text: str) -> dict[str, object]:
     target_lineno = _target_line(source_text)
     unique_vals: set[str] = set()
@@ -63,7 +68,7 @@ def extract_unique_values(trace_text: str, source_text: str) -> dict[str, object
 
     return {
         "variable": "origin_date",
-        "unique_values": sorted(unique_vals),
+        "unique_values": _sorted_normalized_unique(unique_vals),
     }
 
 
@@ -96,7 +101,8 @@ def main() -> None:
             "_adjust_dates_anchored`, focus on the variable `origin_date` right before the line "
             "`foffset = (first - origin_date) % freq.as_timedelta()` executes. "
             "List all unique values taken by `origin_date` across the full suite. "
-            "Return them as normalized strings in `YYYY-MM-DD HH:MM:SS` format."
+            "Return them as normalized strings in `YYYY-MM-DD HH:MM:SS` format, sorted in ascending "
+            "chronological order."
         ),
         "template_answer": {
             "variable": "str",

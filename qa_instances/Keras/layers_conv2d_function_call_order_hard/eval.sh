@@ -16,7 +16,7 @@ cd "$ROOT_DIR"
 
 export TRACE_ON="1"
 export TRACE_FILE=""
-export TRACE_FUNC="keras.src.layers.convolutional.conv2d,keras.src.layers.convolutional.base_conv,keras.src.activations.activations,keras.src.backend.tensorflow.nn.relu"
+export TRACE_FUNC="keras.src.layers.convolutional.conv2d,keras.src.layers.convolutional.base_conv,keras.src.activations.activations,keras.src.backend.tensorflow.nn.relu,keras.src.backend.tensorflow.nn.conv,keras.src.backend.tensorflow.nn._conv,keras.src.backend.tensorflow.nn._convert_data_format"
 export TRACE_EVENTS="call"
 export TRACE_LOG_ALL_LINES="0"
 export TRACE_OUT="$TRACE_LOG"

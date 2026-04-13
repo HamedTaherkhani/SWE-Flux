@@ -7,6 +7,9 @@ import re
 from pathlib import Path
 
 
+# The benchmark stack depth is scoped to the filtered optimizer trace,
+# not to the full Python interpreter stack.
+
 EVENT_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2} .*? (/testbed/keras/src/[^:]+):(\d+) ([^ ]+) event=(call|return|exception) ",
     re.MULTILINE,
@@ -50,7 +53,10 @@ def main() -> None:
             "construct `SGD(learning_rate=0.08, momentum=0.6, nesterov=True, clipnorm=0.9)`, "
             "create 4 trainable variables and 4 gradient vectors as defined in the test, "
             "then call `optimizer.apply(grads, variables)`. "
-            "During this test execution, what is the maximum call stack depth reached?"
+            "Report the maximum nested call depth within the benchmark's traced optimizer scope. "
+            "The scope is limited to trace records from `keras/src/optimizers/` whose function "
+            "identifier matches the `keras.src.optimizers` trace filter. "
+            "Do not report the full Python interpreter stack depth."
         ),
         "oracle_answer": {
             "max_stack_depth": max_depth,
