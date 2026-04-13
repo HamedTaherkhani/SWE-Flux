@@ -3,53 +3,115 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
+TARGET_FILE_SUFFIX = "keras/src/activations/activations.py"
+TRACE_LINE_RE = re.compile(
+    rf"{re.escape(TARGET_FILE_SUFFIX)}:(?P<lineno>\d+)\s+"
+    rf"(?P<func>\S+)\s+event=(?P<event>\w+)"
+)
 
-def pct(num: int, den: int) -> float:
-    if den == 0:
-        return 100.0
-    return round((100.0 * num) / den, 4)
+
+def _indent_width(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def locate_static_call_span(source_text: str) -> tuple[int, int]:
+    lines = source_text.splitlines()
+    class_line = None
+    class_indent = None
+    static_call_line = None
+    static_call_indent = None
+
+    for idx, raw in enumerate(lines, start=1):
+        stripped = raw.strip()
+        if class_line is None and re.match(r"^class\s+ReLU\b", stripped):
+            class_line = idx
+            class_indent = _indent_width(raw)
+            continue
+
+        if class_line is None:
+            continue
+
+        indent = _indent_width(raw)
+        if (
+            stripped
+            and indent <= class_indent
+            and not stripped.startswith("#")
+            and idx > class_line
+        ):
+            break
+
+        if (
+            static_call_line is None
+            and re.match(r"^def\s+static_call\(", stripped)
+            and indent > class_indent
+        ):
+            static_call_line = idx
+            static_call_indent = indent
+            continue
+
+        if static_call_line is not None:
+            if (
+                stripped
+                and indent <= static_call_indent
+                and not stripped.startswith("#")
+            ):
+                return static_call_line, idx - 1
+
+    if static_call_line is None:
+        raise ValueError("Could not locate ReLU.static_call in activations.py")
+
+    return static_call_line, len(lines)
+
+
+def extract_covered_lines(
+    trace_text: str, static_call_start: int, static_call_end: int
+) -> list[int]:
+    covered_lines: set[int] = set()
+    for match in TRACE_LINE_RE.finditer(trace_text):
+        event = match.group("event")
+        lineno = int(match.group("lineno"))
+        if (
+            event == "line"
+            and static_call_start <= lineno <= static_call_end
+        ):
+            covered_lines.add(lineno)
+
+    if not covered_lines:
+        raise ValueError(
+            "No covered lines were found in trace log for "
+            "ReLU.static_call within keras/src/activations/activations.py."
+        )
+    return sorted(covered_lines)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--coverage-json",
-        default="/testbed/logs/qa_instances/coverage_relu_static_call_line_branch_prediction/coverage.json",
+        "--trace-log",
+        default="/testbed/logs/qa_instances/coverage_relu_static_call_line_branch_prediction/trace.log",
     )
     parser.add_argument(
         "--out",
         default="/testbed/logs/qa_instances/coverage_relu_static_call_line_branch_prediction/oracle.json",
     )
+    parser.add_argument(
+        "--source-file",
+        default="/testbed/keras/src/activations/activations.py",
+    )
     args = parser.parse_args()
 
-    obj = json.loads(Path(args.coverage_json).read_text(encoding="utf-8"))
-    file_key = "keras/src/activations/activations.py"
-    func_key = "ReLU.static_call"
-
-    file_entry = obj["files"].get(file_key)
-    if not file_entry:
-        raise ValueError(f"Coverage JSON missing file entry: {file_key}")
-
-    func_entry = file_entry["functions"].get(func_key)
-    if not func_entry:
-        available = sorted(file_entry["functions"].keys())
-        raise ValueError(
-            f"Coverage JSON missing function entry: {func_key}. "
-            f"Available: {available}"
-        )
-
-    summary = func_entry["summary"]
-    covered_lines = sorted(func_entry["executed_lines"])
-    missing_lines = sorted(func_entry["missing_lines"])
-    executed_branches = func_entry.get("executed_branches", [])
-    missing_branches = func_entry.get("missing_branches", [])
-
-    covered_line_count = int(summary.get("covered_lines", 0))
-    num_statements = int(summary.get("num_statements", 0))
-    covered_branches_count = int(summary.get("covered_branches", 0))
-    num_branches = int(summary.get("num_branches", 0))
+    trace_path = Path(args.trace_log)
+    trace_text = trace_path.read_text(encoding="utf-8")
+    source_text = Path(args.source_file).read_text(encoding="utf-8")
+    static_call_start, static_call_end = locate_static_call_span(source_text)
+    covered_lines = extract_covered_lines(
+        trace_text,
+        static_call_start=static_call_start,
+        static_call_end=static_call_end,
+    )
 
     qa = {
         "question_kind": "coverage_prediction",
@@ -57,12 +119,12 @@ def main() -> None:
             "Use `keras/src/test/activations/relu_static_call_coverage_prediction_test.py`, "
             "class `ReLUStaticCallCoveragePredictionQATest`, and all test methods in this class. "
             "Target function: `ReLU.static_call` in `keras/src/activations/activations.py`. "
-            "Exactly which line numbers of this function are covered by these tests, and what are "
-            "the exact line-coverage and branch-coverage metrics for this function?"
+            "Exactly which line numbers of this function are covered by these tests?"
         ),
         "oracle_answer": {
             "covered_lines": covered_lines
         },
+        "oracle_source": str(trace_path),
     }
 
     Path(args.out).write_text(json.dumps(qa, indent=2) + "\n", encoding="utf-8")

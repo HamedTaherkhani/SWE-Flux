@@ -12,6 +12,16 @@ CALL_RE = re.compile(
     re.MULTILINE,
 )
 
+TRACED_FUNCS = (
+    "telegram._webappinfo.WebAppInfo.__init__",
+    "telegram._keyboardbutton.KeyboardButton.__init__",
+    "telegram._replykeyboardmarkup.ReplyKeyboardMarkup.__init__",
+    "telegram._utils.markup.check_keyboard_type",
+    "telegram._telegramobject.TelegramObject.to_dict",
+    "telegram._telegramobject.TelegramObject._get_attrs",
+    "telegram._telegramobject.TelegramObject._get_attrs_names",
+)
+
 
 def extract_call_order(trace_text: str) -> dict:
     matches = list(CALL_RE.finditer(trace_text))
@@ -22,6 +32,8 @@ def extract_call_order(trace_text: str) -> dict:
     for match in matches:
         func_name = match.group("func")
         if "<locals>" in func_name:
+            continue
+        if func_name not in TRACED_FUNCS:
             continue
 
         function_call_order.append(
@@ -57,12 +69,19 @@ def main() -> None:
             "`test_replykeyboard_function_call_order_case`. "
             "At line 23, `markup_dict = markup.to_dict()` is executed after constructing a "
             "`ReplyKeyboardMarkup` with mixed button types. "
-            "This execution spans multiple files and classes, including "
-            "`telegram/_replykeyboardmarkup.py`, `telegram/_keyboardbutton.py`, "
-            "`telegram/_webappinfo.py`, `telegram/_utils/markup.py`, and "
-            "`telegram/_telegramobject.py`. "
-            "What is the exact ordered sequence of function calls during this test run, "
-            "as a list of objects with keys `file` and `func`, including repeated calls?"
+            "For this instance, consider only traced `event=call` entries for these exact "
+            "qualified functions: "
+            "`telegram._webappinfo.WebAppInfo.__init__`, "
+            "`telegram._keyboardbutton.KeyboardButton.__init__`, "
+            "`telegram._replykeyboardmarkup.ReplyKeyboardMarkup.__init__`, "
+            "`telegram._utils.markup.check_keyboard_type`, "
+            "`telegram._telegramobject.TelegramObject.to_dict`, "
+            "`telegram._telegramobject.TelegramObject._get_attrs`, and "
+            "`telegram._telegramobject.TelegramObject._get_attrs_names`. "
+            "Exclude any traced call whose qualified function name contains `<locals>` "
+            "(for example generator or comprehension frames). "
+            "What is the exact ordered sequence of those traced function calls during this "
+            "test run, as a list of objects with keys `file` and `func`, including repeated calls?"
         ),
         "template_answer": {
             "function_call_order": [

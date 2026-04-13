@@ -62,9 +62,13 @@ def main() -> None:
             "(all tests in that file, 18 tests total). Focus only on "
             "`telegram/ext/_handlers/conversationhandler.py`, function "
             "`telegram.ext._handlers.conversationhandler.ConversationHandler.check_update` "
-            "(lines 707-796). Which exact line numbers in this target function are covered at least "
-            "once by this suite? Return a JSON object with exactly one key `covered_lines`, where "
-            "the value is a sorted list of unique integers in ascending order: "
+            "(lines 707-796). Count a line as covered only if the trace contains an `event=line` "
+            "entry whose file path and fully qualified function name exactly match this target "
+            "function. Do not count matching `event=call`, `event=return`, or `event=exception` "
+            "entries, so the function entry/call line is included only if it also appears as an "
+            "`event=line` entry. Which exact line numbers in this target function are covered at "
+            "least once by this suite? Return a JSON object with exactly one key `covered_lines`, "
+            "where the value is a sorted list of unique integers in ascending order: "
             "`{\"covered_lines\": [<int>, ...]}`."
         ),
         "template_answer": {
