@@ -312,7 +312,7 @@ Model naming notes:
 - `--cleanup-mounted-repos` / `--no-cleanup-mounted-repos`
 - `--repo-root <path>` single repo only
 - `--repo-roots-file <json>`
-- `--max-tool-rounds`, `--repomap-tokens`, `--max-read-lines`, `--max-read-chars`, `--max-repair-rounds`, `--temperature`
+- `--max-read-lines`, `--max-read-chars`, `--max-repair-rounds`, `--temperature`
 - `--print-llm-trace` / `--no-print-llm-trace`
 
 ### Output layout
