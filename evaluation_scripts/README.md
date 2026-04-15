@@ -15,7 +15,7 @@ Script: `evaluation_scripts/llm_eval/run_llm_repomap_eval_host.py`
 Compatibility wrapper (still available): `evaluation_scripts/run_llm_repomap_eval_host.py`
 
 This flow is host-side and read-only:
-- Uses provider APIs (`openai`, `gemini`, `anthropic`, `fireworks`)
+- Uses provider APIs (`openai`, `gemini`, `anthropic`, `fireworks`, `openrouter`)
 - Uses read-only tools: `get_repo_map`, `list_dir`, `read_file`
 
 Activate the project env first:
@@ -29,6 +29,7 @@ conda activate repo
 - OpenAI: `OPENAI_API_KEY`
 - Gemini: `GOOGLE_API_KEY` or `GEMINI_API_KEY`
 - Anthropic: `ANTHROPIC_API_KEY`
+- OpenRouter: `OPENROUTER_API_KEY`
 
 Set keys in bash (set only what you need for your selected provider):
 
@@ -43,6 +44,9 @@ export GEMINI_API_KEY="your_gemini_key"
 
 # Anthropic
 export ANTHROPIC_API_KEY="your_anthropic_key"
+
+# OpenRouter
+export OPENROUTER_API_KEY="your_openrouter_key"
 ```
 
 ### Usage
@@ -66,6 +70,7 @@ python3 evaluation_scripts/llm_eval/run_llm_repomap_eval_host.py \
 
 Model naming notes:
 - For `--provider openai`, use OpenAI API model IDs (example: `gpt-5.3-codex`).
+- For `--provider openrouter`, use OpenRouter model IDs (example: `google/gemma-4-31b-it`).
 - Cursor aliases such as `gpt-5.3-codex-high` are not OpenAI API model IDs.
 
 ### Important options

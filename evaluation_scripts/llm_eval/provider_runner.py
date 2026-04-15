@@ -23,6 +23,10 @@ USAGE_NUMERIC_KEYS = [
 ]
 
 DEFAULT_GPT_OSS_20B_REQUEST_CAP = int(os.environ.get("REPOBEHAVE_GPT_OSS_20B_MAX_REQUESTS", "25"))
+DEFAULT_GEMMA_4_31B_REQUEST_CAP = int(os.environ.get("REPOBEHAVE_GEMMA_4_31B_MAX_REQUESTS", "25"))
+DEFAULT_GEMINI_31_PRO_PREVIEW_REQUEST_CAP = int(
+    os.environ.get("REPOBEHAVE_GEMINI_31_PRO_PREVIEW_MAX_REQUESTS", "35")
+)
 DEFAULT_FIREWORKS_REQUEST_TIMEOUT_SECONDS = float(
     os.environ.get("REPOBEHAVE_FIREWORKS_REQUEST_TIMEOUT_SECONDS", "360")
 )
@@ -180,9 +184,20 @@ class ProviderRunner:
         return out
 
     def _request_cap_for_model(self) -> Optional[int]:
-        if "gpt-oss-20b" not in (self.model or "").lower():
+        lower = (self.model or "").strip().lower()
+        if not lower:
             return None
-        return max(1, int(DEFAULT_GPT_OSS_20B_REQUEST_CAP))
+
+        # Treat separators consistently across providers/output naming variants.
+        normalized = lower.replace("_", "-")
+
+        if "gpt-oss-20b" in normalized:
+            return max(1, int(DEFAULT_GPT_OSS_20B_REQUEST_CAP))
+        if "gemma-4-31b-it" in normalized:
+            return max(1, int(DEFAULT_GEMMA_4_31B_REQUEST_CAP))
+        if "gemini-3.1-pro-preview" in normalized:
+            return max(1, int(DEFAULT_GEMINI_31_PRO_PREVIEW_REQUEST_CAP))
+        return None
 
     def _is_request_cap_reached(self, request_counter: List[int]) -> bool:
         cap = self._request_cap_for_model()
@@ -256,6 +271,13 @@ class ProviderRunner:
             )
         if self.provider == "fireworks":
             return self._run_fireworks(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                tool_callback=tool_callback,
+                enable_tools=enable_tools,
+            )
+        if self.provider == "openrouter":
+            return self._run_openrouter(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
@@ -469,6 +491,52 @@ class ProviderRunner:
             enable_tools=enable_tools,
             trace_label="fireworks-chat",
             usage_source="openai-chat-fireworks",
+            request_counter=request_counter,
+        )
+
+    def _run_openrouter(self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool) -> str:
+        import openai
+
+        api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("openrouter_api_key")
+        if not api_key:
+            raise RuntimeError(
+                "OpenRouter API key not found. Set OPENROUTER_API_KEY (or openrouter_api_key) in your environment/.env."
+            )
+        if not hasattr(openai, "OpenAI"):
+            raise RuntimeError(
+                "Modern OpenAI SDK required. Install or upgrade the 'openai' package in the host environment."
+            )
+
+        base_url = (
+            os.environ.get("OPENROUTER_BASE_URL")
+            or os.environ.get("OPENROUTER_API_BASE")
+            or "https://openrouter.ai/api/v1"
+        )
+        default_headers: Dict[str, str] = {}
+        http_referer = os.environ.get("OPENROUTER_HTTP_REFERER") or os.environ.get("OPENROUTER_REFERER")
+        x_title = os.environ.get("OPENROUTER_X_TITLE") or os.environ.get("OPENROUTER_TITLE")
+        if http_referer:
+            default_headers["HTTP-Referer"] = http_referer
+        if x_title:
+            default_headers["X-Title"] = x_title
+
+        client_kwargs: Dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
+        client = openai.OpenAI(**client_kwargs)
+
+        request_counter = [0]
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return self._run_openai_chat(
+            client=client,
+            messages=messages,
+            tool_callback=tool_callback,
+            enable_tools=enable_tools,
+            trace_label="openrouter-chat",
+            usage_source="openai-chat-openrouter",
             request_counter=request_counter,
         )
 
