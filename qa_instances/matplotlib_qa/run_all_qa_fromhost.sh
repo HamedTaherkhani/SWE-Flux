@@ -1,0 +1,49 @@
+#!/bin/bash
+set -euo pipefail
+
+# Run all QA instances from host (outside Docker), one by one.
+# This script expects to live inside qa_instances/matplotlib_qa/ (same pattern as Sympy).
+
+QA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNNER="$QA_DIR/run_qa_fromhost.sh"
+
+if [[ ! -x "$RUNNER" ]]; then
+  echo "ERROR: Missing executable runner: $RUNNER"
+  echo "Run: chmod +x $RUNNER"
+  exit 1
+fi
+
+mkdir -p "$QA_DIR/qa_artifacts"
+
+INSTANCES=()
+while IFS= read -r d; do
+  name="$(basename "$d")"
+  case "$name" in
+    shared|qa_artifacts)
+      continue
+      ;;
+    *)
+      INSTANCES+=("$name")
+      ;;
+  esac
+done < <(find "$QA_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+
+if [[ ${#INSTANCES[@]} -eq 0 ]]; then
+  echo "No QA instances found in: $QA_DIR"
+  exit 1
+fi
+
+echo "Found ${#INSTANCES[@]} QA instances:"
+for inst in "${INSTANCES[@]}"; do
+  echo "  - $inst"
+done
+
+for inst in "${INSTANCES[@]}"; do
+  echo
+  echo "===== RUNNING INSTANCE: $inst ====="
+  HOST_QA_DIR="$QA_DIR" "$RUNNER" "$inst"
+done
+
+echo
+echo "All QA instances completed."
+echo "Artifacts root: $QA_DIR/qa_artifacts"
