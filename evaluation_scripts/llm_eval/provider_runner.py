@@ -31,6 +31,9 @@ DEFAULT_FIREWORKS_REQUEST_TIMEOUT_SECONDS = float(
     os.environ.get("REPOBEHAVE_FIREWORKS_REQUEST_TIMEOUT_SECONDS", "360")
 )
 DEFAULT_FIREWORKS_MAX_RETRIES = int(os.environ.get("REPOBEHAVE_FIREWORKS_MAX_RETRIES", "0"))
+DEFAULT_VLLM_REQUEST_TIMEOUT_SECONDS = float(
+    os.environ.get("REPOBEHAVE_VLLM_REQUEST_TIMEOUT_SECONDS", "600")
+)
 TOOL_PHASE_DONE_SENTINEL = "DONE_WITH_FILE_READING"
 TOOL_PHASE_REMINDER_PROMPT = (
     "Do not answer yet. If you still need repository context, continue with tool calls. "
@@ -278,6 +281,13 @@ class ProviderRunner:
             )
         if self.provider == "openrouter":
             return self._run_openrouter(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                tool_callback=tool_callback,
+                enable_tools=enable_tools,
+            )
+        if self.provider == "vllm":
+            return self._run_vllm(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
@@ -537,6 +547,44 @@ class ProviderRunner:
             enable_tools=enable_tools,
             trace_label="openrouter-chat",
             usage_source="openai-chat-openrouter",
+            request_counter=request_counter,
+        )
+
+    def _run_vllm(self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool) -> str:
+        import openai
+
+        # vLLM exposes an OpenAI-compatible Chat Completions endpoint.
+        base_url = (
+            os.environ.get("VLLM_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or os.environ.get("OPENAI_API_BASE")
+            or "http://127.0.0.1:8000/v1"
+        )
+        api_key = (
+            os.environ.get("VLLM_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("openai_api_key")
+            or "EMPTY"
+        )
+        timeout_seconds = max(1.0, float(DEFAULT_VLLM_REQUEST_TIMEOUT_SECONDS))
+        client = openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout_seconds,
+            max_retries=0,
+        )
+        request_counter = [0]
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return self._run_openai_chat(
+            client=client,
+            messages=messages,
+            tool_callback=tool_callback,
+            enable_tools=enable_tools,
+            trace_label="vllm-chat",
+            usage_source="openai-chat-vllm",
             request_counter=request_counter,
         )
 

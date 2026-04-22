@@ -7,6 +7,7 @@ Usage:
   python3 evaluation_scripts/evaluate_qa_answers.py --tool cursor --model gpt-5.3-codex-high
   python3 evaluation_scripts/evaluate_qa_answers.py --tool llm --vendor openai --model gpt-5.4-2026-03-05 --repo Sympy
   python3 evaluation_scripts/evaluate_qa_answers.py --tool llm --vendor openai --model gpt-5.4-2026-03-05
+  python3 evaluation_scripts/evaluate_qa_answers.py --tool llm --vendor vllm --model local-vllm --repo Sympy
   python3 evaluation_scripts/evaluate_qa_answers.py --all
 """
 
@@ -487,7 +488,7 @@ def main() -> None:
     parser.add_argument(
         "--vendor",
         default=None,
-        help="Vendor name for --tool llm (e.g. openai, gemini, anthropic)",
+        help="Vendor name for --tool llm (e.g. openai, gemini, anthropic, vllm)",
     )
     parser.add_argument("--model", help="Model name under evaluations/<tool>/ (or evaluations/llm/<vendor>/ for --tool llm)")
     parser.add_argument(

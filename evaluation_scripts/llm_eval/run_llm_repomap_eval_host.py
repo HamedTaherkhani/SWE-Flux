@@ -1438,7 +1438,11 @@ def run_repo(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Run host-side read-only LLM RepoMap QA eval")
-    p.add_argument("--provider", choices=["openai", "gemini", "anthropic", "fireworks", "openrouter"], required=True)
+    p.add_argument(
+        "--provider",
+        choices=["openai", "gemini", "anthropic", "fireworks", "openrouter", "vllm"],
+        required=True,
+    )
     p.add_argument("--model", required=True)
     p.add_argument("--repo", default="all", help="Repo name under qa_instances_eval, or all")
     p.add_argument("--instances-root", default=str(REPO_ROOT / "qa_instances_eval"))

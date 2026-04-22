@@ -15,7 +15,7 @@ Script: `evaluation_scripts/llm_eval/run_llm_repomap_eval_host.py`
 Compatibility wrapper (still available): `evaluation_scripts/run_llm_repomap_eval_host.py`
 
 This flow is host-side and read-only:
-- Uses provider APIs (`openai`, `gemini`, `anthropic`, `fireworks`, `openrouter`)
+- Uses provider APIs (`openai`, `gemini`, `anthropic`, `fireworks`, `openrouter`, `vllm`)
 - Uses read-only tools: `get_repo_map`, `list_dir`, `read_file`
 
 Activate the project env first:
@@ -30,6 +30,7 @@ conda activate repo
 - Gemini: `GOOGLE_API_KEY` or `GEMINI_API_KEY`
 - Anthropic: `ANTHROPIC_API_KEY`
 - OpenRouter: `OPENROUTER_API_KEY`
+- vLLM: `VLLM_BASE_URL` (default `http://127.0.0.1:8000/v1`) and optional `VLLM_API_KEY`
 
 Set keys in bash (set only what you need for your selected provider):
 
@@ -47,6 +48,10 @@ export ANTHROPIC_API_KEY="your_anthropic_key"
 
 # OpenRouter
 export OPENROUTER_API_KEY="your_openrouter_key"
+
+# vLLM (local OpenAI-compatible endpoint)
+export VLLM_BASE_URL="http://127.0.0.1:8000/v1"
+export VLLM_API_KEY="EMPTY"
 ```
 
 ### Usage
@@ -66,12 +71,23 @@ python3 evaluation_scripts/llm_eval/run_llm_repomap_eval_host.py \
   --resume \
   --instances-root qa_instances_eval \
   --output-root evaluations
+
+python3 evaluation_scripts/llm_eval/run_llm_repomap_eval_host.py \
+  --provider vllm \
+  --model local-vllm \
+  --repo Sympy \
+  --instances-root qa_instances_eval \
+  --output-root evaluations
 ```
 
 Model naming notes:
 - For `--provider openai`, use OpenAI API model IDs (example: `gpt-5.3-codex`).
 - For `--provider openrouter`, use OpenRouter model IDs (example: `google/gemma-4-31b-it`).
+- For `--provider vllm`, use the served model alias from your local vLLM server (example: `local-vllm`).
 - Cursor aliases such as `gpt-5.3-codex-high` are not OpenAI API model IDs.
+
+For a managed local vLLM lifecycle, use:
+- `evaluation_scripts/llm_eval/start_vllm.sh`
 
 ### Important options
 
@@ -325,6 +341,16 @@ python3 evaluation_scripts/evaluate_qa_answers.py \
   --tool llm \
   --vendor openai \
   --model gpt-5.4-2026-03-05 \
+  --repo Sympy \
+  --qa-root qa_instances_eval \
+  --eval-root evaluations
+```
+
+```bash
+python3 evaluation_scripts/evaluate_qa_answers.py \
+  --tool llm \
+  --vendor vllm \
+  --model local-vllm \
   --repo Sympy \
   --qa-root qa_instances_eval \
   --eval-root evaluations
