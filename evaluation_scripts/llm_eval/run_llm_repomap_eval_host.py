@@ -73,12 +73,6 @@ def run_checked(cmd: Sequence[str], *, capture: bool = False) -> subprocess.Comp
         text=True,
         capture_output=capture,
     )
-
-
-
-
-def have_docker() -> bool:
-    return subprocess.run(["bash", "-lc", "command -v docker >/dev/null 2>&1"]).returncode == 0
 def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -782,9 +776,11 @@ def coerce_against_template(answer: Any, template: Any, path: str = "$") -> Tupl
 try:
     from .provider_runner import ProviderRunner, TOOL_PHASE_DONE_SENTINEL
     from .repo_tools import INSTANCE_PREVIEW_LIMIT, ReadOnlyRepoTools, shrink_tool_payload_for_llm
+    from .container_runtime import CONTAINER_RUNTIME_CHOICES, ContainerRuntime, build_container_runtime
 except ImportError:
     from provider_runner import ProviderRunner, TOOL_PHASE_DONE_SENTINEL
     from repo_tools import INSTANCE_PREVIEW_LIMIT, ReadOnlyRepoTools, shrink_tool_payload_for_llm
+    from container_runtime import CONTAINER_RUNTIME_CHOICES, ContainerRuntime, build_container_runtime
 
 REASONING_TRACE_EVENTS_LIMIT = int(os.environ.get("REPOBEHAVE_REASONING_TRACE_EVENTS_LIMIT", "80"))
 REASONING_TRACE_TEXT_MAX_CHARS = int(os.environ.get("REPOBEHAVE_REASONING_TRACE_MAX_CHARS", "18000"))
@@ -1157,20 +1153,22 @@ def infer_repo_subdir_from_question(repo_instances_dir: Path) -> Optional[str]:
     return None
 
 
-def list_testbed_dirs(image: str) -> List[str]:
-    proc = run_checked(
-        ["docker", "run", "--rm", image, "bash", "-lc", "ls -1A /testbed"],
-        capture=True,
-    )
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+def list_testbed_dirs(image: str, *, container_runtime: ContainerRuntime) -> List[str]:
+    return container_runtime.list_dir_entries(image=image, dir_path="/testbed")
 
 
-def infer_repo_subdir_for_image(repo_name: str, repo_instances_dir: Path, image: str) -> str:
+def infer_repo_subdir_for_image(
+    repo_name: str,
+    repo_instances_dir: Path,
+    image: str,
+    *,
+    container_runtime: ContainerRuntime,
+) -> str:
     from_question = infer_repo_subdir_from_question(repo_instances_dir)
     if from_question:
         return from_question
 
-    dirs = list_testbed_dirs(image)
+    dirs = list_testbed_dirs(image, container_runtime=container_runtime)
     aliases = [p.name for p in default_repo_candidates(repo_name, Path("/testbed"))]
     for alias in aliases:
         if alias in dirs:
@@ -1202,9 +1200,12 @@ def materialize_repo_snapshot(
     repo_instances_dir: Path,
     mount_root: Path,
     refresh: bool,
+    container_runtime: ContainerRuntime,
 ) -> Tuple[Path, bool]:
-    if not have_docker():
-        raise RuntimeError("Docker is required for snapshot materialization but is not available")
+    if not container_runtime.is_available():
+        raise RuntimeError(
+            f"{container_runtime.name.capitalize()} is required for snapshot materialization but is not available"
+        )
 
     mount_root = mount_root.resolve()
     dest = mount_root / repo_name
@@ -1216,21 +1217,19 @@ def materialize_repo_snapshot(
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
 
-    # Ensure image exists locally.
-    if subprocess.run(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
-        print(f"[{repo_name}] Pulling image for snapshot: {image}")
-        run_checked(["docker", "pull", image])
+    container_runtime.ensure_image_available(image, repo_name=repo_name)
 
-    repo_subdir = infer_repo_subdir_for_image(repo_name, repo_instances_dir, image)
-    container_name = f"repobehave-snap-{sanitize_name(repo_name).lower()}-{os.getpid()}"
+    repo_subdir = infer_repo_subdir_for_image(
+        repo_name,
+        repo_instances_dir,
+        image,
+        container_runtime=container_runtime,
+    )
     src_label = "/testbed" if repo_subdir == "." else f"/testbed/{repo_subdir}"
     print(f"[{repo_name}] Materializing {src_label} -> {dest}")
 
-    run_checked(["docker", "create", "--name", container_name, image], capture=True)
-    try:
-        run_checked(["docker", "cp", f"{container_name}:/testbed/{repo_subdir}/.", str(dest)])
-    finally:
-        subprocess.run(["docker", "rm", "-f", container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    copy_src = "/testbed" if repo_subdir == "." else f"/testbed/{repo_subdir}"
+    container_runtime.copy_dir_contents(image=image, src_dir=copy_src, dest=dest, name_hint=repo_name)
 
     if not any(dest.iterdir()):
         raise RuntimeError(f"Snapshot materialization produced empty directory: {dest}")
@@ -1456,7 +1455,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--repos-file",
         default=str(REPO_ROOT / "Repositories.json"),
-        help="Repo->docker-image mapping for snapshot mount",
+        help="Repo->container-image mapping for snapshot materialization",
+    )
+    p.add_argument(
+        "--container-runtime",
+        choices=list(CONTAINER_RUNTIME_CHOICES),
+        default="docker",
+        help="Container runtime used for snapshot materialization",
     )
     p.add_argument(
         "--mount-root",
@@ -1467,7 +1472,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--materialize-missing-from-image",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="If repo root is missing, copy repo snapshot from docker image into --mount-root",
+        help="If repo root is missing, copy repo snapshot from container image into --mount-root",
     )
     p.add_argument(
         "--refresh-mounted-repos",
@@ -1563,6 +1568,7 @@ def main() -> int:
     out_model_root = Path(args.output_root).resolve() / "llm" / args.provider / model_segment
     out_model_root.mkdir(parents=True, exist_ok=True)
     mount_root = Path(args.mount_root).resolve()
+    container_runtime = build_container_runtime(args.container_runtime)
 
     print(f"Provider:            {args.provider}")
     print(f"Model:               {args.model}")
@@ -1571,6 +1577,7 @@ def main() -> int:
     print(f"Instances root:      {instances_root}")
     print(f"Repo root base:      {Path(args.repo_root_base).resolve()}")
     print(f"Mount root:          {mount_root}")
+    print(f"Container runtime:   {container_runtime.name}")
     print(f"Resume mode:         {'enabled' if args.resume else 'disabled'}")
     print("Mode:                host-side read-only (no code execution)")
     print()
@@ -1603,6 +1610,7 @@ def main() -> int:
                             repo_instances_dir=instances_dir,
                             mount_root=mount_root,
                             refresh=args.refresh_mounted_repos,
+                            container_runtime=container_runtime,
                         )
                         if created_now:
                             mounted_to_cleanup.append(repo_root)
@@ -1639,6 +1647,7 @@ def main() -> int:
                             repo_instances_dir=instances_dir,
                             mount_root=mount_root,
                             refresh=args.refresh_mounted_repos,
+                            container_runtime=container_runtime,
                         )
                         if created_now:
                             mounted_to_cleanup.append(repo_root)
