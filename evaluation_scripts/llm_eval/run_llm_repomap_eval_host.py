@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run read-only repository QA evaluation on host using LLM tool-calling + aider RepoMap.
+"""Run read-only repository QA evaluation on host using LLM tool-calling.
 
 This runner does not execute repository code/tests.
 It runs the evaluation directly on host using local repo snapshots.
@@ -791,18 +791,24 @@ REASONING_TRACE_TEXT_MAX_CHARS = int(os.environ.get("REPOBEHAVE_REASONING_TRACE_
 # ---------------------------
 
 
-def make_system_prompt() -> str:
+def make_system_prompt(*, repo_map_mode: str, max_read_lines: int) -> str:
+    first_step = (
+        "Call get_repo_map first, then use list_dir/read_file only as needed."
+        if repo_map_mode != "none"
+        else "Use list_dir/read_file tools only (get_repo_map is disabled)."
+    )
     return (
         "Solve repository QA in read-only mode with tool calls only.\n"
         "Rules:\n"
-        "1. Call get_repo_map first, then use list_dir/read_file only as needed.\n"
+        f"1. {first_step}\n"
         "2. Prefer relative paths. Repo files are usually like src/...; instance files are usually files/....\n"
         "3. Minimize unnecessary reads and repeated failed paths.\n"
-        f"4. When you are completely done using tools, reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
-        "5. Do not combine the completion signal with the final JSON answer.\n"
-        "6. After the follow-up prompt closes the tool phase, return exactly one JSON object matching "
+        f"4. read_file has a hard per-call limit: at most {max_read_lines} lines.\n"
+        f"5. When you are completely done using tools, reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
+        "6. Do not combine the completion signal with the final JSON answer.\n"
+        "7. After the follow-up prompt closes the tool phase, return exactly one JSON object matching "
         "template_answer keys and value types.\n"
-        "7. Do not output markdown or explanations in the final answer."
+        "8. Do not output markdown or explanations in the final answer."
     )
 
 
@@ -902,7 +908,8 @@ def run_single_instance(
     question_path: Path,
     repo_root: Path,
     max_read_lines: int,
-    max_read_chars: int,
+    repo_map_mode: str,
+    cheap_repomap_max_files: int,
     temperature: float,
     max_repair_rounds: int,
     trace: Optional[Callable[[str], None]] = None,
@@ -919,8 +926,10 @@ def run_single_instance(
         repo_root=repo_root,
         instance_dir=instance_dir,
         max_read_lines=max_read_lines,
-        max_read_chars=max_read_chars,
+        repo_map_mode=repo_map_mode,
+        cheap_repomap_max_files=cheap_repomap_max_files,
     )
+    enabled_tool_names = tools.enabled_tool_names()
 
     local_trace_events: List[str] = []
 
@@ -979,7 +988,10 @@ def run_single_instance(
         trace=_emit_trace,
     )
 
-    system_prompt = make_system_prompt()
+    system_prompt = make_system_prompt(
+        repo_map_mode=repo_map_mode,
+        max_read_lines=max_read_lines,
+    )
     user_prompt = build_user_prompt(
         question_data=question_data,
         repo_root=repo_root,
@@ -988,7 +1000,12 @@ def run_single_instance(
     )
 
     template = question_data.get("template_answer", {})
-    raw_response = runner.run(system_prompt=system_prompt, user_prompt=user_prompt, tool_callback=tool_callback)
+    raw_response = runner.run(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        tool_callback=tool_callback,
+        tool_names=enabled_tool_names,
+    )
     _emit_trace(f"[final-raw] {raw_response}")
     parsed = extract_first_json_object(raw_response)
 
@@ -1037,6 +1054,7 @@ def run_single_instance(
             user_prompt=repair_prompt,
             tool_callback=tool_callback,
             enable_tools=False,
+            tool_names=enabled_tool_names,
         )
         parsed = extract_first_json_object(raw_response)
         _apply_coercion()
@@ -1062,6 +1080,7 @@ def run_single_instance(
             user_prompt=reasoning_prompt,
             tool_callback=tool_callback,
             enable_tools=False,
+            tool_names=enabled_tool_names,
         )
         if len(reasoning_trace_raw) > 30000:
             reasoning_trace_raw = reasoning_trace_raw[:30000] + "...<truncated>"
@@ -1153,6 +1172,33 @@ def infer_repo_subdir_from_question(repo_instances_dir: Path) -> Optional[str]:
     return None
 
 
+def _extract_repo_hint_paths_from_question(repo_instances_dir: Path) -> List[str]:
+    qfiles = sorted(repo_instances_dir.glob("*/question.json"))
+    if not qfiles:
+        return []
+
+    first_q = load_json(qfiles[0])
+    question = str(first_q.get("question", ""))
+    hints: List[str] = []
+    seen: set[str] = set()
+
+    # Prefer concrete python source paths that can validate the candidate repo root.
+    for raw in re.findall(r"`([^`]+)`", question):
+        p = raw.strip().strip("/")
+        if not p or "/" not in p:
+            continue
+        if not p.endswith(".py"):
+            continue
+        if p.startswith("tests/") or p.startswith("files/tests/"):
+            continue
+        if p in seen:
+            continue
+        seen.add(p)
+        hints.append(p)
+
+    return hints
+
+
 def list_testbed_dirs(image: str, *, container_runtime: ContainerRuntime) -> List[str]:
     return container_runtime.list_dir_entries(image=image, dir_path="/testbed")
 
@@ -1165,14 +1211,9 @@ def infer_repo_subdir_for_image(
     container_runtime: ContainerRuntime,
 ) -> str:
     from_question = infer_repo_subdir_from_question(repo_instances_dir)
-    if from_question:
-        return from_question
-
+    hint_paths = _extract_repo_hint_paths_from_question(repo_instances_dir)
     dirs = list_testbed_dirs(image, container_runtime=container_runtime)
     aliases = [p.name for p in default_repo_candidates(repo_name, Path("/testbed"))]
-    for alias in aliases:
-        if alias in dirs:
-            return alias
 
     # Some images place repository root directly at /testbed (no nested subdir).
     root_markers = {
@@ -1183,9 +1224,45 @@ def infer_repo_subdir_for_image(
         "README.rst",
         ".git",
     }
-    if any(marker in dirs for marker in root_markers):
-        return "."
+    root_looks_like_repo = any(marker in dirs for marker in root_markers)
 
+    candidate_subdirs: List[str] = []
+    seen_candidates: set[str] = set()
+
+    def _add_candidate(candidate: str) -> None:
+        c = (candidate or "").strip()
+        if not c or c in seen_candidates:
+            return
+        seen_candidates.add(c)
+        candidate_subdirs.append(c)
+
+    if from_question:
+        _add_candidate(from_question)
+    for alias in aliases:
+        if alias in dirs:
+            _add_candidate(alias)
+    if root_looks_like_repo:
+        _add_candidate(".")
+    if len(dirs) == 1:
+        _add_candidate(dirs[0])
+    for d in dirs:
+        _add_candidate(d)
+
+    if hint_paths:
+        for candidate in candidate_subdirs:
+            prefix = "/testbed" if candidate == "." else f"/testbed/{candidate}"
+            for hint_rel in hint_paths:
+                if container_runtime.path_exists(image=image, path=f"{prefix}/{hint_rel}"):
+                    return candidate
+
+    # Fall back to old behavior when no hints were available or no candidate matched.
+    if from_question:
+        return from_question
+    for alias in aliases:
+        if alias in dirs:
+            return alias
+    if root_looks_like_repo:
+        return "."
     if len(dirs) == 1:
         return dirs[0]
     raise RuntimeError(
@@ -1285,7 +1362,8 @@ def run_repo(
     out_repo_root: Path,
     num_instances: str,
     max_read_lines: int,
-    max_read_chars: int,
+    repo_map_mode: str,
+    cheap_repomap_max_files: int,
     temperature: float,
     max_repair_rounds: int,
     print_llm_trace: bool,
@@ -1350,7 +1428,8 @@ def run_repo(
                 question_path=qpath,
                 repo_root=repo_root,
                 max_read_lines=max_read_lines,
-                max_read_chars=max_read_chars,
+                repo_map_mode=repo_map_mode,
+                cheap_repomap_max_files=cheap_repomap_max_files,
                 temperature=temperature,
                 max_repair_rounds=max_repair_rounds,
                 trace=_trace,
@@ -1507,7 +1586,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p.add_argument("--max-read-lines", type=int, default=300)
-    p.add_argument("--max-read-chars", type=int, default=90000)
+    p.add_argument(
+        "--repo-map-mode",
+        choices=["repomap", "cheap_repomap", "none"],
+        default="repomap",
+        help="Repository map tool mode: full aider repomap, cheap python-file listing, or none",
+    )
+    p.add_argument(
+        "--cheap-repomap-max-files",
+        type=int,
+        default=2000,
+        help="Max python file paths returned when --repo-map-mode=cheap_repomap",
+    )
     p.add_argument("--max-repair-rounds", type=int, default=2)
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument(
@@ -1582,6 +1672,9 @@ def main() -> int:
     print(f"Repo root base:      {Path(args.repo_root_base).resolve()}")
     print(f"Mount root:          {mount_root}")
     print(f"Container runtime:   {container_runtime.name}")
+    print(f"Repo map mode:       {args.repo_map_mode}")
+    if args.repo_map_mode == "cheap_repomap":
+        print(f"Cheap map max files: {args.cheap_repomap_max_files}")
     print(f"Resume mode:         {'enabled' if args.resume else 'disabled'}")
     print("Mode:                host-side read-only (no code execution)")
     print()
@@ -1668,7 +1761,8 @@ def main() -> int:
                 out_repo_root=out_model_root / repo_name,
                 num_instances=args.num_instances,
                 max_read_lines=args.max_read_lines,
-                max_read_chars=args.max_read_chars,
+                repo_map_mode=args.repo_map_mode,
+                cheap_repomap_max_files=args.cheap_repomap_max_files,
                 temperature=args.temperature,
                 max_repair_rounds=args.max_repair_rounds,
                 print_llm_trace=args.print_llm_trace,

@@ -44,6 +44,10 @@ class ContainerRuntime(ABC):
     def copy_dir_contents(self, *, image: str, src_dir: str, dest: Path, name_hint: str) -> None:
         raise NotImplementedError
 
+    @abstractmethod
+    def path_exists(self, *, image: str, path: str) -> bool:
+        raise NotImplementedError
+
 
 class DockerRuntime(ContainerRuntime):
     name = "docker"
@@ -78,6 +82,15 @@ class DockerRuntime(ContainerRuntime):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+
+    def path_exists(self, *, image: str, path: str) -> bool:
+        proc = subprocess.run(
+            ["docker", "run", "--rm", image, "bash", "-lc", f"test -e {shlex.quote(path)}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return proc.returncode == 0
 
 
 class ApptainerRuntime(ContainerRuntime):
@@ -126,6 +139,16 @@ class ApptainerRuntime(ContainerRuntime):
             f"cp -a {shlex.quote(src_with_contents)} /repobehave-dest/"
         )
         _run_checked(["apptainer", "exec", "--bind", bind_spec, image_ref, "bash", "-lc", cmd])
+
+    def path_exists(self, *, image: str, path: str) -> bool:
+        image_ref = self._image_ref(image)
+        proc = subprocess.run(
+            ["apptainer", "exec", image_ref, "bash", "-lc", f"test -e {shlex.quote(path)}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return proc.returncode == 0
 
 
 def build_container_runtime(runtime_name: str) -> ContainerRuntime:

@@ -5,22 +5,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VLLM_MODEL="${VLLM_MODEL:-}"
-VLLM_ALIAS="${VLLM_ALIAS:-local-vllm}"
+if [[ -n "${VLLM_ALIAS:-}" ]]; then
+  VLLM_ALIAS="$VLLM_ALIAS"
+elif [[ -n "${VLLM_MODEL:-}" ]]; then
+  VLLM_ALIAS="$(basename "$VLLM_MODEL")"
+else
+  VLLM_ALIAS="local-vllm"
+fi
 VLLM_HOST="${VLLM_HOST:-0.0.0.0}"
 VLLM_CLIENT_HOST="${VLLM_CLIENT_HOST:-127.0.0.1}"
 VLLM_PORT="${VLLM_PORT:-8000}"
-VLLM_TP="${VLLM_TP:-1}"
+VLLM_TP="${VLLM_TP:-2}"
 VLLM_DTYPE="${VLLM_DTYPE:-bfloat16}"
 VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.9}"
-VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-131072}"
-VLLM_MAX_NUM_BATCHED_TOKENS="${VLLM_MAX_NUM_BATCHED_TOKENS:-131072}"
+VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-30910}"
+VLLM_MAX_NUM_BATCHED_TOKENS="${VLLM_MAX_NUM_BATCHED_TOKENS:-30910}"
 VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-1}"
-VLLM_ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-0}"
-VLLM_KV_CACHE_DTYPE="${VLLM_KV_CACHE_DTYPE:-}"
+VLLM_ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-1}"
+VLLM_KV_CACHE_DTYPE="${VLLM_KV_CACHE_DTYPE:-fp8}"
+VLLM_ENABLE_AUTO_TOOL_CHOICE="${VLLM_ENABLE_AUTO_TOOL_CHOICE:-1}"
+VLLM_TOOL_CALL_PARSER="${VLLM_TOOL_CALL_PARSER:-gemma4}"
 VLLM_HEALTH_TIMEOUT_SECONDS="${VLLM_HEALTH_TIMEOUT_SECONDS:-300}"
 
 LOG_FILE="${VLLM_LOG_FILE:-$SCRIPT_DIR/vllm_server.log}"
 PID_FILE="${VLLM_PID_FILE:-$SCRIPT_DIR/.vllm_server.pid}"
+
+
 
 # Helps reduce fragmentation during long runs.
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
@@ -60,6 +70,8 @@ Environment:
   VLLM_MAX_NUM_SEQS            Max concurrent sequences (default: 8)
   VLLM_ENFORCE_EAGER           Set 1 to pass --enforce-eager
   VLLM_KV_CACHE_DTYPE          Optional kv cache dtype (e.g. fp8)
+  VLLM_ENABLE_AUTO_TOOL_CHOICE Set 1 to pass --enable-auto-tool-choice (default: 1)
+  VLLM_TOOL_CALL_PARSER        Tool call parser name (default: gemma4)
   VLLM_HEALTH_TIMEOUT_SECONDS  Startup wait timeout (default: 300)
   VLLM_LOG_FILE                Server log path
   VLLM_PID_FILE                Server pid file path
@@ -81,9 +93,16 @@ is_running() {
 }
 
 health_ok() {
-  local response
-  response="$(curl -fsS "$(health_url)" 2>/dev/null || true)"
-  [[ -n "$response" ]] && grep -qi "ok" <<<"$response"
+  # vLLM /health payload varies by version; HTTP 200 is enough.
+  curl -fsS "$(health_url)" >/dev/null 2>&1
+}
+
+init_conda_shell() {
+  # Non-interactive shells may expose only the conda binary (no shell function).
+  if ! command -v conda >/dev/null 2>&1; then
+    return 1
+  fi
+  eval "$(conda shell.bash hook)"
 }
 
 require_model() {
@@ -116,12 +135,29 @@ build_server_cmd() {
   if [[ -n "$VLLM_KV_CACHE_DTYPE" ]]; then
     cmd+=(--kv-cache-dtype "$VLLM_KV_CACHE_DTYPE")
   fi
+  if [[ "$VLLM_ENABLE_AUTO_TOOL_CHOICE" == "1" ]]; then
+    cmd+=(--enable-auto-tool-choice)
+  fi
+  if [[ -n "$VLLM_TOOL_CALL_PARSER" ]]; then
+    cmd+=(--tool-call-parser "$VLLM_TOOL_CALL_PARSER")
+  fi
 
   cmd+=("${extra[@]}")
   printf '%s\n' "${cmd[@]}"
 }
 
 start_server() {
+  ### Purge current env and activate Triad env
+  if init_conda_shell; then
+    if [[ "${CONDA_SHLVL:-0}" -gt 0 ]]; then
+      conda deactivate
+    fi
+  else
+    echo "ERROR: conda is required to activate the Triad environment." >&2
+    exit 1
+  fi
+  module --force purge
+  conda activate Triad
   require_model
 
   if is_running; then

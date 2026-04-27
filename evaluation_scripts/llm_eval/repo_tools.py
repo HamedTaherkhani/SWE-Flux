@@ -55,6 +55,7 @@ _REPO_FILE_CACHE: Dict[str, List[str]] = {}
 _REPO_MAP_CACHE: Dict[str, str] = {}
 INSTANCE_PREVIEW_LIMIT = 60
 DEFAULT_REPOMAP_TOKENS = int(os.environ.get("REPOBEHAVE_REPOMAP_MAX_TOKENS", "24000"))
+DEFAULT_CHEAP_REPOMAP_MAX_FILES = int(os.environ.get("REPOBEHAVE_CHEAP_REPOMAP_MAX_FILES", "2000"))
 MAX_REPOMAP_RESULT_CHARS = int(os.environ.get("REPOBEHAVE_REPOMAP_MAX_CHARS", "120000"))
 MAX_READ_FILE_RESULT_CHARS = int(os.environ.get("REPOBEHAVE_READ_FILE_MAX_CHARS", "60000"))
 MAX_TOOL_RESULT_JSON_CHARS = int(os.environ.get("REPOBEHAVE_TOOL_RESULT_JSON_MAX_CHARS", "140000"))
@@ -164,19 +165,31 @@ class ReadOnlyRepoTools:
         repo_root: Path,
         instance_dir: Path,
         max_read_lines: int,
-        max_read_chars: int,
+        repo_map_mode: str = "repomap",
+        cheap_repomap_max_files: int = DEFAULT_CHEAP_REPOMAP_MAX_FILES,
     ) -> None:
         self.repo_root = repo_root.resolve()
         self.instance_dir = instance_dir.resolve()
         self.max_read_lines = max_read_lines
-        self.max_read_chars = max_read_chars
+        self.repo_map_mode = str(repo_map_mode or "repomap").strip().lower()
+        self.cheap_repomap_max_files = max(1, int(cheap_repomap_max_files))
+
+        if self.repo_map_mode not in {"repomap", "cheap_repomap", "none"}:
+            raise RuntimeError(
+                "Invalid repo_map_mode. Expected one of: repomap, cheap_repomap, none"
+            )
 
         if not self.repo_root.exists():
             raise RuntimeError(f"Repository root does not exist: {self.repo_root}")
         if not self.instance_dir.exists():
             raise RuntimeError(f"Instance dir does not exist: {self.instance_dir}")
 
-        self._repomap = self._build_repomap()
+        self._repomap = self._build_repomap() if self.repo_map_mode == "repomap" else None
+
+    def enabled_tool_names(self) -> List[str]:
+        if self.repo_map_mode == "none":
+            return ["list_dir", "read_file"]
+        return ["get_repo_map", "list_dir", "read_file"]
 
     def _build_repomap(self) -> Any:
         try:
@@ -224,6 +237,42 @@ class ReadOnlyRepoTools:
 
         _REPO_FILE_CACHE[key] = sorted(out)
         return _REPO_FILE_CACHE[key]
+
+    def _cheap_repomap_files(self) -> List[str]:
+        key = f"cheap::{self.repo_root}"
+        if key in _REPO_FILE_CACHE:
+            return _REPO_FILE_CACHE[key]
+
+        excluded_dir_tokens = {"test", "tests", "testing", "log", "logs", "__pycache__"}
+        out: List[str] = []
+        for path in self.repo_root.rglob("*.py"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(self.repo_root)
+            rel_parts_lower = [part.lower() for part in rel.parts]
+            filename = path.name.lower()
+
+            if filename == "__init__.py":
+                continue
+            if filename == "conftest.py":
+                continue
+            if filename.startswith("test_") or filename.endswith("_test.py"):
+                continue
+            if any(token in excluded_dir_tokens for token in rel_parts_lower[:-1]):
+                continue
+            # Additional guard for odd logging-oriented python files.
+            if filename.endswith(".log.py") or filename.startswith("log_"):
+                continue
+
+            out.append(str(path))
+
+        _REPO_FILE_CACHE[key] = sorted(out)
+        return _REPO_FILE_CACHE[key]
+
+    def _repo_map_file_count(self) -> int:
+        if self.repo_map_mode == "cheap_repomap":
+            return len(self._cheap_repomap_files())
+        return len(self._all_repo_files())
 
     def _is_under_allowed_roots(self, p: Path) -> bool:
         try:
@@ -289,8 +338,12 @@ class ReadOnlyRepoTools:
             resolved_abs = p.resolve(strict=False)
             try:
                 rel = resolved_abs.relative_to(self.repo_root)
-                if rel.parts and rel.parts[0].lower() in known_prefixes and len(rel.parts) > 1:
-                    _add_candidate(self.repo_root / Path(*rel.parts[1:]))
+                if rel.parts and rel.parts[0].lower() in known_prefixes:
+                    if len(rel.parts) > 1:
+                        _add_candidate(self.repo_root / Path(*rel.parts[1:]))
+                    else:
+                        # e.g. absolute ".../<repo>/<repo>" while repo_root already points at package root.
+                        _add_candidate(self.repo_root)
             except ValueError:
                 pass
         else:
@@ -308,6 +361,9 @@ class ReadOnlyRepoTools:
                     _add_candidate(self.repo_root / stripped)
                     _add_candidate(self.instance_dir / stripped)
                     _add_candidate(self.instance_dir / "files" / stripped)
+            elif len(parts) == 1 and parts[0].lower() in known_prefixes:
+                # e.g. path="sympy" while repo_root is already sympy package root.
+                _add_candidate(self.repo_root)
 
             # Instance fixtures are often under files/<repo_prefix>/...
             for prefix in known_prefixes:
@@ -350,7 +406,9 @@ class ReadOnlyRepoTools:
         )
 
     def get_repo_map(self, focus_paths: Optional[List[str]] = None) -> ToolResult:
-        cache_key = str(self.repo_root)
+        if self.repo_map_mode == "none":
+            return ToolResult(ok=False, payload={"error": "get_repo_map is disabled in repo_map_mode=none"})
+        cache_key = f"{self.repo_map_mode}:{self.repo_root}"
 
         chat_files: List[str] = []
         if focus_paths:
@@ -367,20 +425,35 @@ class ReadOnlyRepoTools:
                 ok=True,
                 payload={
                     "repo_root": self._to_user_path(self.repo_root),
-                    "repo_file_count": len(self._all_repo_files()),
+                    "repo_file_count": self._repo_map_file_count(),
                     "focus_file_count": 0,
                     "repo_map": "(cached repo_map already provided earlier in this instance; omitted to save context)",
                     "repo_map_cached": True,
                 },
             )
 
-        all_files = self._all_repo_files()
-
-        try:
-            repomap_text = self._repomap.get_repo_map(chat_files=chat_files, other_files=all_files)
-        except TypeError:
-            # Defensive fallback for positional signatures.
-            repomap_text = self._repomap.get_repo_map(chat_files, all_files)
+        if self.repo_map_mode == "cheap_repomap":
+            cheap_files = self._cheap_repomap_files()
+            limited = cheap_files[: self.cheap_repomap_max_files]
+            rel_paths = [self._to_user_path(Path(p)) for p in limited]
+            header = [
+                "Cheap repository map (python file paths only):",
+                f"- mode: cheap_repomap",
+                f"- total_candidate_files: {len(cheap_files)}",
+                f"- returned_files: {len(rel_paths)}",
+            ]
+            if len(cheap_files) > len(limited):
+                header.append(f"- truncated: true ({len(cheap_files) - len(limited)} omitted)")
+            repomap_text = "\n".join(header + rel_paths)
+            all_file_count = len(cheap_files)
+        else:
+            all_files = self._all_repo_files()
+            try:
+                repomap_text = self._repomap.get_repo_map(chat_files=chat_files, other_files=all_files)
+            except TypeError:
+                # Defensive fallback for positional signatures.
+                repomap_text = self._repomap.get_repo_map(chat_files, all_files)
+            all_file_count = len(all_files)
 
         if not chat_files and repomap_text:
             _REPO_MAP_CACHE[cache_key] = repomap_text
@@ -393,10 +466,11 @@ class ReadOnlyRepoTools:
             ok=True,
             payload={
                 "repo_root": self._to_user_path(self.repo_root),
-                "repo_file_count": len(all_files),
+                "repo_file_count": all_file_count,
                 "focus_file_count": len(chat_files),
                 "repo_map": repomap_text,
                 "repo_map_truncated": repomap_trimmed,
+                "repo_map_mode": self.repo_map_mode,
             },
         )
 
@@ -428,7 +502,7 @@ class ReadOnlyRepoTools:
 
         return ToolResult(ok=True, payload={"path": self._to_user_path(target), "entries": entries})
 
-    def read_file(self, path: str, start_line: int = 1, end_line: int = 250) -> ToolResult:
+    def read_file(self, path: str, start_line: int = 1, end_line: Optional[int] = None) -> ToolResult:
         try:
             target = self._resolve_user_path(path)
         except ValueError as exc:
@@ -440,7 +514,10 @@ class ReadOnlyRepoTools:
             return ToolResult(ok=False, payload={"error": f"not a file: {self._to_user_path(target)}"})
 
         start_line = max(1, int(start_line))
-        end_line = max(start_line, int(end_line))
+        if end_line is None:
+            end_line = start_line + self.max_read_lines - 1
+        else:
+            end_line = max(start_line, int(end_line))
         if end_line - start_line + 1 > self.max_read_lines:
             end_line = start_line + self.max_read_lines - 1
 
@@ -456,10 +533,6 @@ class ReadOnlyRepoTools:
 
         selected = lines[s_idx:e_idx]
         numbered = "\n".join(f"{i + start_line}:{line}" for i, line in enumerate(selected))
-        truncated = False
-        if len(numbered) > self.max_read_chars:
-            numbered = numbered[: self.max_read_chars]
-            truncated = True
 
         return ToolResult(
             ok=True,
@@ -468,14 +541,14 @@ class ReadOnlyRepoTools:
                 "start_line": start_line,
                 "end_line": e_idx,
                 "total_lines": total,
-                "truncated": truncated,
+                "truncated": False,
                 "content": numbered,
             },
         )
 
 
 TOOL_DESCRIPTIONS = {
-    "get_repo_map": "Return aider RepoMap context for the repository. Use this first to find relevant files.",
+    "get_repo_map": "Return repository map context for the repository. Use this first to find relevant files.",
     "list_dir": "List directory entries in allowed roots (repo root and current instance directory).",
     "read_file": "Read file content by line range. Read-only.",
 }
@@ -521,7 +594,7 @@ TOOL_INPUT_SCHEMAS = {
             },
             "end_line": {
                 "type": "integer",
-                "default": 250,
+                "description": "Optional ending line (inclusive). If omitted, reads max_read_lines from start_line.",
                 "minimum": 1,
             },
         },

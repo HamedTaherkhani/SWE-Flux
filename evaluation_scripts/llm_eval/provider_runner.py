@@ -23,7 +23,7 @@ USAGE_NUMERIC_KEYS = [
 ]
 
 DEFAULT_GPT_OSS_20B_REQUEST_CAP = int(os.environ.get("REPOBEHAVE_GPT_OSS_20B_MAX_REQUESTS", "25"))
-DEFAULT_GEMMA_4_31B_REQUEST_CAP = int(os.environ.get("REPOBEHAVE_GEMMA_4_31B_MAX_REQUESTS", "25"))
+DEFAULT_GEMMA_4_31B_REQUEST_CAP = int(os.environ.get("REPOBEHAVE_GEMMA_4_31B_MAX_REQUESTS", "17"))
 DEFAULT_GEMINI_31_PRO_PREVIEW_REQUEST_CAP = int(
     os.environ.get("REPOBEHAVE_GEMINI_31_PRO_PREVIEW_MAX_REQUESTS", "35")
 )
@@ -46,6 +46,7 @@ FINAL_JSON_PROMPT = (
     "Tool phase is closed. Return ONLY the final JSON answer object matching the earlier template. "
     "Do not output markdown or explanations."
 )
+DEFAULT_TOOL_NAMES = ["get_repo_map", "list_dir", "read_file"]
 
 
 def _to_int_or_none(value: Any) -> Optional[int]:
@@ -196,7 +197,7 @@ class ProviderRunner:
 
         if "gpt-oss-20b" in normalized:
             return max(1, int(DEFAULT_GPT_OSS_20B_REQUEST_CAP))
-        if "gemma-4-31b-it" in normalized:
+        if "gemma-4-31b-it" in normalized or "local-vllm" in normalized:
             return max(1, int(DEFAULT_GEMMA_4_31B_REQUEST_CAP))
         if "gemini-3.1-pro-preview" in normalized:
             return max(1, int(DEFAULT_GEMINI_31_PRO_PREVIEW_REQUEST_CAP))
@@ -250,13 +251,16 @@ class ProviderRunner:
         user_prompt: str,
         tool_callback,
         enable_tools: bool = True,
+        tool_names: Optional[List[str]] = None,
     ) -> str:
+        active_tool_names = list(tool_names) if tool_names is not None else list(DEFAULT_TOOL_NAMES)
         if self.provider == "openai":
             return self._run_openai(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
                 enable_tools=enable_tools,
+                tool_names=active_tool_names,
             )
         if self.provider == "gemini":
             return self._run_gemini(
@@ -264,6 +268,7 @@ class ProviderRunner:
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
                 enable_tools=enable_tools,
+                tool_names=active_tool_names,
             )
         if self.provider == "anthropic":
             return self._run_anthropic(
@@ -271,6 +276,7 @@ class ProviderRunner:
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
                 enable_tools=enable_tools,
+                tool_names=active_tool_names,
             )
         if self.provider == "fireworks":
             return self._run_fireworks(
@@ -278,6 +284,7 @@ class ProviderRunner:
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
                 enable_tools=enable_tools,
+                tool_names=active_tool_names,
             )
         if self.provider == "openrouter":
             return self._run_openrouter(
@@ -285,6 +292,7 @@ class ProviderRunner:
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
                 enable_tools=enable_tools,
+                tool_names=active_tool_names,
             )
         if self.provider == "vllm":
             return self._run_vllm(
@@ -292,10 +300,13 @@ class ProviderRunner:
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
                 enable_tools=enable_tools,
+                tool_names=active_tool_names,
             )
         raise ValueError(f"Unsupported provider: {self.provider}")
 
-    def _run_openai(self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool) -> str:
+    def _run_openai(
+        self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool, tool_names: List[str]
+    ) -> str:
         import openai
 
         api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("openai_api_key")
@@ -319,6 +330,7 @@ class ProviderRunner:
                 user_prompt=user_prompt,
                 tool_callback=tool_callback,
                 enable_tools=enable_tools,
+                tool_names=tool_names,
                 request_counter=request_counter,
             )
         except Exception as exc:
@@ -333,6 +345,7 @@ class ProviderRunner:
                 messages=messages,
                 tool_callback=tool_callback,
                 enable_tools=enable_tools,
+                tool_names=tool_names,
                 request_counter=request_counter,
             )
         except Exception as chat_exc:
@@ -351,6 +364,7 @@ class ProviderRunner:
         messages: List[Dict[str, Any]],
         tool_callback,
         enable_tools: bool,
+        tool_names: Optional[List[str]] = None,
         trace_label: str = "openai-chat",
         usage_source: str = "openai-chat",
         request_counter: Optional[List[int]] = None,
@@ -372,6 +386,19 @@ class ProviderRunner:
             self._t(f"[{trace_label}] assistant: {msg.content or ''}")
             return msg.content or ""
 
+        active_tool_names = list(tool_names) if tool_names is not None else list(DEFAULT_TOOL_NAMES)
+        if not active_tool_names:
+            return self._run_openai_chat(
+                client=client,
+                messages=messages,
+                tool_callback=tool_callback,
+                enable_tools=False,
+                trace_label=trace_label,
+                usage_source=usage_source,
+                request_counter=counter,
+                enforce_request_cap=enforce_request_cap,
+            )
+
         tools = [
             {
                 "type": "function",
@@ -381,7 +408,7 @@ class ProviderRunner:
                     "parameters": TOOL_INPUT_SCHEMAS[name],
                 },
             }
-            for name in ["get_repo_map", "list_dir", "read_file"]
+            for name in active_tool_names
         ]
 
         while True:
@@ -397,15 +424,35 @@ class ProviderRunner:
                     usage_source=usage_source,
                     request_counter=counter,
                     enforce_request_cap=False,
+                    tool_names=active_tool_names,
                 )
             self._t(f"[{trace_label}] request")
-            resp = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                temperature=self.temperature,
-            )
+            request_kwargs: Dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": "auto",
+                "temperature": self.temperature,
+            }
+            try:
+                resp = client.chat.completions.create(**request_kwargs)
+            except Exception as exc:
+                err_text = str(exc)
+                auto_tool_choice_err = (
+                    '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set'
+                )
+                if "vllm" in trace_label and auto_tool_choice_err in err_text:
+                    # Older/misconfigured vLLM servers may reject explicit tool_choice="auto".
+                    # Retry once without the explicit tool_choice key so runs can continue.
+                    self._t(
+                        f"[{trace_label}] server rejected tool_choice=auto; retrying without explicit tool_choice. "
+                        "For reliable tool-calling, start vLLM with --enable-auto-tool-choice "
+                        "and --tool-call-parser <parser>."
+                    )
+                    request_kwargs.pop("tool_choice", None)
+                    resp = client.chat.completions.create(**request_kwargs)
+                else:
+                    raise
             counter[0] = int(counter[0]) + 1
             self._record_usage(usage_source, getattr(resp, "usage", None))
             msg = resp.choices[0].message
@@ -454,12 +501,15 @@ class ProviderRunner:
                     usage_source=usage_source,
                     request_counter=counter,
                     enforce_request_cap=False,
+                    tool_names=active_tool_names,
                 )
 
             self._t(f"[{trace_label}] assistant did not signal tool completion; reminding")
             messages.append({"role": "user", "content": TOOL_PHASE_REMINDER_PROMPT})
 
-    def _run_fireworks(self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool) -> str:
+    def _run_fireworks(
+        self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool, tool_names: List[str]
+    ) -> str:
         import openai
 
         api_key = (
@@ -499,12 +549,15 @@ class ProviderRunner:
             messages=messages,
             tool_callback=tool_callback,
             enable_tools=enable_tools,
+            tool_names=tool_names,
             trace_label="fireworks-chat",
             usage_source="openai-chat-fireworks",
             request_counter=request_counter,
         )
 
-    def _run_openrouter(self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool) -> str:
+    def _run_openrouter(
+        self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool, tool_names: List[str]
+    ) -> str:
         import openai
 
         api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("openrouter_api_key")
@@ -545,12 +598,15 @@ class ProviderRunner:
             messages=messages,
             tool_callback=tool_callback,
             enable_tools=enable_tools,
+            tool_names=tool_names,
             trace_label="openrouter-chat",
             usage_source="openai-chat-openrouter",
             request_counter=request_counter,
         )
 
-    def _run_vllm(self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool) -> str:
+    def _run_vllm(
+        self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool, tool_names: List[str]
+    ) -> str:
         import openai
 
         # vLLM exposes an OpenAI-compatible Chat Completions endpoint.
@@ -583,6 +639,7 @@ class ProviderRunner:
             messages=messages,
             tool_callback=tool_callback,
             enable_tools=enable_tools,
+            tool_names=tool_names,
             trace_label="vllm-chat",
             usage_source="openai-chat-vllm",
             request_counter=request_counter,
@@ -596,6 +653,7 @@ class ProviderRunner:
         user_prompt: str,
         tool_callback,
         enable_tools: bool,
+        tool_names: Optional[List[str]] = None,
         request_counter: Optional[List[int]] = None,
         enforce_request_cap: bool = True,
     ) -> str:
@@ -613,6 +671,7 @@ class ProviderRunner:
                 return obj.get(key, default)
             return getattr(obj, key, default)
 
+        active_tool_names = list(tool_names) if tool_names is not None else list(DEFAULT_TOOL_NAMES)
         tools = [
             {
                 "type": "function",
@@ -620,7 +679,7 @@ class ProviderRunner:
                 "description": TOOL_DESCRIPTIONS[name],
                 "parameters": TOOL_INPUT_SCHEMAS[name],
             }
-            for name in ["get_repo_map", "list_dir", "read_file"]
+            for name in active_tool_names
         ]
 
         create_kwargs: Dict[str, Any] = {
@@ -631,7 +690,7 @@ class ProviderRunner:
             ],
             "temperature": self.temperature,
         }
-        if enable_tools:
+        if enable_tools and tools:
             create_kwargs["tools"] = tools
 
         response = _responses_create(bypass_cap=not enforce_request_cap, **create_kwargs)
@@ -735,7 +794,9 @@ class ProviderRunner:
             )
             self._record_usage("openai-responses", getattr(response, "usage", None))
 
-    def _run_gemini(self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool) -> str:
+    def _run_gemini(
+        self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool, tool_names: List[str]
+    ) -> str:
         from google import genai
         from google.genai import types
 
@@ -748,10 +809,12 @@ class ProviderRunner:
                 description=TOOL_DESCRIPTIONS[name],
                 parameters=TOOL_INPUT_SCHEMAS[name],
             )
-            for name in ["get_repo_map", "list_dir", "read_file"]
+            for name in tool_names
         ]
 
         contents: List[Any] = [types.UserContent(parts=[types.Part.from_text(text=user_prompt)])]
+        if enable_tools and not tool_names:
+            enable_tools = False
 
         if not enable_tools:
             self._t("[gemini] request")
@@ -833,17 +896,21 @@ class ProviderRunner:
             self._t("[gemini] assistant did not signal tool completion; reminding")
             contents.append(types.UserContent(parts=[types.Part.from_text(text=TOOL_PHASE_REMINDER_PROMPT)]))
 
-    def _run_anthropic(self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool) -> str:
+    def _run_anthropic(
+        self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool, tool_names: List[str]
+    ) -> str:
         import anthropic
 
         client = anthropic.Anthropic()
+        if enable_tools and not tool_names:
+            enable_tools = False
         tools = [
             {
                 "name": name,
                 "description": TOOL_DESCRIPTIONS[name],
                 "input_schema": TOOL_INPUT_SCHEMAS[name],
             }
-            for name in ["get_repo_map", "list_dir", "read_file"]
+            for name in tool_names
         ]
 
         messages: List[Dict[str, Any]] = [{"role": "user", "content": user_prompt}]
