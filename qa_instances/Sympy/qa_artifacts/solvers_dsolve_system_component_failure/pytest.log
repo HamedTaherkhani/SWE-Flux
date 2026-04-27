@@ -1,0 +1,72 @@
+============================= test session starts ==============================
+platform linux -- Python 3.8.20, pytest-8.3.4, pluggy-1.5.0
+rootdir: /testbed
+configfile: pyproject.toml
+plugins: split-0.10.0, hypothesis-6.113.0, doctestplus-1.3.0, timeout-2.3.1, xdist-3.6.1
+collected 1 item
+
+tests/qa/solvers_dsolve_system_component_failure_test.py F
+
+=================================== FAILURES ===================================
+_ TestSolversDsolveSystemComponentFailureQA.test_solvers_dsolve_system_component_failure_case _
+
+self = <solvers_dsolve_system_component_failure_test.TestSolversDsolveSystemComponentFailureQA object at 0x73d9d544e310>
+
+    def test_solvers_dsolve_system_component_failure_case(self):
+        f, g = symbols("f g", cls=Function)
+        t = symbols("t")
+    
+        equations = (
+            Eq(f(t).diff(t), 12 * f(t) - 6 * g(t)),
+            Eq(g(t).diff(t) ** 2, 11 * f(t) + 3 * g(t)),
+        )
+    
+>       dsolve_system(equations)
+
+tests/qa/solvers_dsolve_system_component_failure_test.py:15: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+sympy/solvers/ode/systems.py:2109: in dsolve_system
+    sol = _component_solver(canon_eq, funcs, t)
+sympy/solvers/ode/systems.py:1778: in _component_solver
+    sol += _weak_component_solver(wcc, t)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+wcc = [[Eq(Derivative(f(t), t), 12*f(t) - 6*g(t)), Eq(Derivative(g(t), t), -sqrt(11*f(t) + 3*g(t)))]]
+t = t
+
+    def _weak_component_solver(wcc, t):
+    
+        # We will divide the systems into sccs
+        # only when the wcc cannot be solved as
+        # a whole
+        eqs = []
+        for scc in wcc:
+            eqs += scc
+        funcs = _get_funcs_from_canon(eqs)
+    
+        sol = _strong_component_solver(eqs, funcs, t)
+        if sol:
+            return sol
+    
+        sol = []
+    
+        for scc in wcc:
+            eqs = scc
+            funcs = _get_funcs_from_canon(eqs)
+    
+            # Substituting solutions for the dependent
+            # variables solved in previous SCC, if any solved.
+            comp_eqs = [eq.subs({s.lhs: s.rhs for s in sol}) for eq in eqs]
+            scc_sol = _strong_component_solver(comp_eqs, funcs, t)
+    
+            if scc_sol is None:
+>               raise NotImplementedError(filldedent('''
+                    The system of ODEs passed cannot be solved by dsolve_system.
+                '''))
+E               NotImplementedError: 
+E               The system of ODEs passed cannot be solved by dsolve_system.
+
+sympy/solvers/ode/systems.py:1759: NotImplementedError
+=========================== short test summary info ============================
+FAILED tests/qa/solvers_dsolve_system_component_failure_test.py::TestSolversDsolveSystemComponentFailureQA::test_solvers_dsolve_system_component_failure_case
+============================== 1 failed in 1.94s ===============================

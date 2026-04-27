@@ -1,0 +1,78 @@
+{
+  "debug": {
+    "coercion_note_count": 0,
+    "coercion_notes": [],
+    "cost": {
+      "billable_tokens": {
+        "input_cached": 0,
+        "input_uncached": 117411,
+        "output": 964
+      },
+      "configured": true,
+      "cost_breakdown_usd": {
+        "input_cached": 0.0,
+        "input_uncached": 0.20546925,
+        "output": 0.013496000000000001
+      },
+      "cost_usd": 0.21896525,
+      "currency": "USD",
+      "model_lookup": {
+        "match_type": "exact",
+        "matched": true,
+        "matched_model": "gpt-5.3-codex",
+        "model": "gpt-5.3-codex",
+        "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json",
+        "provider": "openai"
+      },
+      "pricing": {
+        "cached_input_cost_per_1m": 0.175,
+        "input_cost_per_1m": 1.75,
+        "output_cost_per_1m": 14.0
+      },
+      "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json"
+    },
+    "question_path": "/home/hamed/PycharmProjects/RepoBehave/qa_instances_eval/Keras/layers_mha_function_call_order_complex/question.json",
+    "raw_response": "{\"function_call_order\":\"list[{file: str, func: str, line: int}]\"}",
+    "reasoning_trace": {
+      "concise_thought": "I identified the call chain by following the tested MHA `call()` path under masks+causal+dropout+training, then ordering only the cross-file function invocations that actually execute in this scenario (projection EinsumDense calls, attention mask computation, masked softmax, dropout, and output projection).",
+      "execution_steps": [
+        "Read the complex QA test to confirm exact arguments and flags (`return_attention_scores=True`, `training=True`, `use_causal_mask=True`, query mask set).",
+        "Trace `MultiHeadAttention.call` to see preprocessing, mask handling, projection sublayer calls, attention computation, and final projection.",
+        "Trace `_compute_attention_mask` and causal-mask merge path to confirm mask-combination call occurs before score softmax.",
+        "Trace `_compute_attention` to confirm order: dot-product scores -> masked softmax -> dropout (because dropout>0 and training=True) -> context combine.",
+        "Verify each projection/output dense op is `EinsumDense.call` and count/order them (query, key, value, output).",
+        "Map each invoked function to its source file and line anchor used in the final ordered list."
+      ],
+      "key_evidence": [
+        "Test explicitly enables all mask sources plus causal mask and training dropout, forcing `_compute_attention_mask`, `_masked_softmax`, and `Dropout.call` execution.",
+        "`MultiHeadAttention.call` invokes three projection layers (`_query_dense`, `_key_dense`, `_value_dense`) before attention, each dispatching to `einsum_dense.EinsumDense.call`.",
+        "Attention path in MHA calls `_masked_softmax`, which uses `softmax.Softmax.call` for normalized masked scores.",
+        "With `dropout=0.25` and `training=True`, attention probabilities pass through `dropout.Dropout.call` before value combination.",
+        "After attention output is formed, MHA applies `_output_dense`, another `EinsumDense.call`, as the final cross-file call in this set."
+      ],
+      "uncertainties": [
+        "Line numbers can shift slightly by commit/version; ordering is stable but exact numeric anchors depend on the checked file revision.",
+        "Internal helper ops/backend calls inside these functions were intentionally excluded since the question scopes to the four specified files/functions."
+      ]
+    },
+    "reasoning_trace_error": "",
+    "reasoning_trace_raw": "{\"concise_thought\":\"I identified the call chain by following the tested MHA `call()` path under masks+causal+dropout+training, then ordering only the cross-file function invocations that actually execute in this scenario (projection EinsumDense calls, attention mask computation, masked softmax, dropout, and output projection).\",\"execution_steps\":[\"Read the complex QA test to confirm exact arguments and flags (`return_attention_scores=True`, `training=True`, `use_causal_mask=True`, query mask set).\",\"Trace `MultiHeadAttention.call` to see preprocessing, mask handling, projection sublayer calls, attention computation, and final projection.\",\"Trace `_compute_attention_mask` and causal-mask merge path to confirm mask-combination call occurs before score softmax.\",\"Trace `_compute_attention` to confirm order: dot-product scores -> masked softmax -> dropout (because dropout>0 and training=True) -> context combine.\",\"Verify each projection/output dense op is `EinsumDense.call` and count/order them (query, key, value, output).\",\"Map each invoked function to its source file and line anchor used in the final ordered list.\"],\"key_evidence\":[\"Test explicitly enables all mask sources plus causal mask and training dropout, forcing `_compute_attention_mask`, `_masked_softmax`, and `Dropout.call` execution.\",\"`MultiHeadAttention.call` invokes three projection layers (`_query_dense`, `_key_dense`, `_value_dense`) before attention, each dispatching to `einsum_dense.EinsumDense.call`.\",\"Attention path in MHA calls `_masked_softmax`, which uses `softmax.Softmax.call` for normalized masked scores.\",\"With `dropout=0.25` and `training=True`, attention probabilities pass through `dropout.Dropout.call` before value combination.\",\"After attention output is formed, MHA applies `_output_dense`, another `EinsumDense.call`, as the final cross-file call in this set.\"],\"uncertainties\":[\"Line numbers can shift slightly by commit/version; ordering is stable but exact numeric anchors depend on the checked file revision.\",\"Internal helper ops/backend calls inside these functions were intentionally excluded since the question scopes to the four specified files/functions.\"]}",
+    "repair_attempts": 0,
+    "repair_errors": [],
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cached_input_tokens": 0,
+      "input_tokens": 117411,
+      "model": "gpt-5.3-codex",
+      "output_tokens": 964,
+      "provider": "openai",
+      "reasoning_tokens": 0,
+      "requests": 5,
+      "total_tokens": 118375,
+      "usage_missing_requests": 0
+    }
+  },
+  "instance": "layers_mha_function_call_order_complex",
+  "status": "ok"
+}

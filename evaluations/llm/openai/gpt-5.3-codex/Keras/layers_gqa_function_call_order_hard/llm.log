@@ -1,0 +1,76 @@
+{
+  "debug": {
+    "coercion_note_count": 0,
+    "coercion_notes": [],
+    "cost": {
+      "billable_tokens": {
+        "input_cached": 33664,
+        "input_uncached": 89898,
+        "output": 1237
+      },
+      "configured": true,
+      "cost_breakdown_usd": {
+        "input_cached": 0.005891199999999999,
+        "input_uncached": 0.1573215,
+        "output": 0.017318
+      },
+      "cost_usd": 0.1805307,
+      "currency": "USD",
+      "model_lookup": {
+        "match_type": "exact",
+        "matched": true,
+        "matched_model": "gpt-5.3-codex",
+        "model": "gpt-5.3-codex",
+        "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json",
+        "provider": "openai"
+      },
+      "pricing": {
+        "cached_input_cost_per_1m": 0.175,
+        "input_cost_per_1m": 1.75,
+        "output_cost_per_1m": 14.0
+      },
+      "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json"
+    },
+    "question_path": "/home/hamed/PycharmProjects/RepoBehave/qa_instances_eval/Keras/layers_gqa_function_call_order_hard/question.json",
+    "raw_response": "{\"function_call_order\":\"list[{file: 'src/layers/attention/grouped_query_attention.py', func: 'GroupedQueryAttention.call', line: 224}, {file: 'src/layers/attention/grouped_query_attention.py', func: 'GroupedQueryAttention._compute_attention_mask', line: 278}, {file: 'src/layers/core/einsum_dense.py', func: 'EinsumDense.call', line: 204}, {file: 'src/layers/core/einsum_dense.py', func: 'EinsumDense.call', line: 204}, {file: 'src/layers/core/einsum_dense.py', func: 'EinsumDense.call', line: 204}, {file: 'src/layers/attention/grouped_query_attention.py', func: 'GroupedQueryAttention._compute_attention', line: 367}, {file: 'src/layers/attention/grouped_query_attention.py', func: 'GroupedQueryAttention._masked_softmax', line: 347}, {file: 'src/layers/activations/softmax.py', func: 'Softmax.call', line: 53}, {file: 'src/layers/regularization/dropout.py', func: 'Dropout.call', line: 58}, {file: 'src/layers/core/einsum_dense.py', func: 'EinsumDense.call', line: 204}]\"}",
+    "reasoning_trace": {
+      "concise_thought": "Validated the provided call-order answer by mapping the test\u2019s invocation path through GroupedQueryAttention.call: mask computation first, then Q/K/V projections, attention computation (masked softmax + dropout under training=True), and final output projection, matching the listed sequence and line anchors.",
+      "execution_steps": [
+        "Read the hard QA test method to confirm exact runtime flags (key=None, masks present, return_attention_scores=True, training=True, use_causal_mask=True).",
+        "Inspected GroupedQueryAttention.call to identify top-level order: _compute_attention_mask, query/key/value dense calls, _compute_attention, output dense call.",
+        "Checked _compute_attention to confirm nested order: _masked_softmax then dropout when dropout>0 and training=True.",
+        "Checked _masked_softmax to confirm delegation to Softmax.call.",
+        "Verified EinsumDense.call, Softmax.call, and Dropout.call entry line numbers used in the final ordered list."
+      ],
+      "key_evidence": [
+        "Test configuration forces mask path and causal mask path, and enables dropout execution (training=True, dropout=0.3).",
+        "GroupedQueryAttention.call contains three projection EinsumDense.call invocations before _compute_attention, then one final projection after attention.",
+        "_compute_attention invokes _masked_softmax, which invokes Softmax.call, then applies Dropout.call before combining with values.",
+        "Returned order exactly matches this control flow: call -> _compute_attention_mask -> 3x EinsumDense.call -> _compute_attention -> _masked_softmax -> Softmax.call -> Dropout.call -> final EinsumDense.call."
+      ],
+      "uncertainties": [
+        "Line numbers can shift across commits; validation assumes the same repository revision as the inspected files.",
+        "Trace reflects Python-layer call order only (not lower-level backend ops)."
+      ]
+    },
+    "reasoning_trace_error": "",
+    "reasoning_trace_raw": "{\"concise_thought\":\"Validated the provided call-order answer by mapping the test\u2019s invocation path through GroupedQueryAttention.call: mask computation first, then Q/K/V projections, attention computation (masked softmax + dropout under training=True), and final output projection, matching the listed sequence and line anchors.\",\"execution_steps\":[\"Read the hard QA test method to confirm exact runtime flags (key=None, masks present, return_attention_scores=True, training=True, use_causal_mask=True).\",\"Inspected GroupedQueryAttention.call to identify top-level order: _compute_attention_mask, query/key/value dense calls, _compute_attention, output dense call.\",\"Checked _compute_attention to confirm nested order: _masked_softmax then dropout when dropout>0 and training=True.\",\"Checked _masked_softmax to confirm delegation to Softmax.call.\",\"Verified EinsumDense.call, Softmax.call, and Dropout.call entry line numbers used in the final ordered list.\"],\"key_evidence\":[\"Test configuration forces mask path and causal mask path, and enables dropout execution (training=True, dropout=0.3).\",\"GroupedQueryAttention.call contains three projection EinsumDense.call invocations before _compute_attention, then one final projection after attention.\",\"_compute_attention invokes _masked_softmax, which invokes Softmax.call, then applies Dropout.call before combining with values.\",\"Returned order exactly matches this control flow: call -> _compute_attention_mask -> 3x EinsumDense.call -> _compute_attention -> _masked_softmax -> Softmax.call -> Dropout.call -> final EinsumDense.call.\"],\"uncertainties\":[\"Line numbers can shift across commits; validation assumes the same repository revision as the inspected files.\",\"Trace reflects Python-layer call order only (not lower-level backend ops).\"]}",
+    "repair_attempts": 0,
+    "repair_errors": [],
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cached_input_tokens": 33664,
+      "input_tokens": 123562,
+      "model": "gpt-5.3-codex",
+      "output_tokens": 1237,
+      "provider": "openai",
+      "reasoning_tokens": 0,
+      "requests": 5,
+      "total_tokens": 124799,
+      "usage_missing_requests": 0
+    }
+  },
+  "instance": "layers_gqa_function_call_order_hard",
+  "status": "ok"
+}
