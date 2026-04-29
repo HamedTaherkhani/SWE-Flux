@@ -23,12 +23,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Evaluation library bootstrap
 # ---------------------------------------------------------------------------
-_REPO_ROOT = Path(__file__).resolve().parents[3]   # fine-tuning/finetune/ → RepoBehave/
-_EVAL_LIB = _REPO_ROOT / "evaluation_scripts" / "llm_eval"
-if str(_EVAL_LIB) not in sys.path:
-    sys.path.insert(0, str(_EVAL_LIB))
+_REPO_ROOT = Path(__file__).resolve().parents[2]  # fine-tuning/finetune/ -> RepoBehave/
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-from repo_tools import TOOL_DESCRIPTIONS, TOOL_INPUT_SCHEMAS  # noqa: E402
+from evaluation_scripts.llm_eval.repo_tools import TOOL_DESCRIPTIONS, TOOL_INPUT_SCHEMAS  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Tool definitions passed to apply_chat_template.

@@ -18,10 +18,11 @@ This flow is host-side and read-only:
 - Uses provider APIs (`openai`, `gemini`, `anthropic`, `fireworks`, `openrouter`, `vllm`)
 - Uses read-only tools: `get_repo_map`, `list_dir`, `read_file`
 
-Activate the project env first:
+Activate the project env first (root `environment.yml`, conda env name
+`Triad_env` — see the project `Readme.md` for the fine-tuning-only env):
 
 ```bash
-conda activate repo
+conda activate Triad_env
 ```
 
 ### API keys

@@ -7,6 +7,62 @@ agentic tool use.
 
 ---
 
+## 1 · Environment setup (conda)
+
+Fine-tuning uses **`fine-tuning/environment.yml`** only (env name **`RepoBehave_finetune`**).
+Dataset generation that talks to OpenAI can use this same env or the root repo env.
+Everything else—evaluation, vLLM, general tooling—uses the root **`environment.yml`**
+(env name **`Triad_env`**).
+
+### Create the fine-tuning environment
+
+From the repository root:
+
+```bash
+# Recommended: libmamba solver (faster dependency resolution)
+conda env create --solver libmamba -f fine-tuning/environment.yml
+conda activate RepoBehave_finetune
+```
+
+### Key packages (see `fine-tuning/environment.yml` for pins)
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `bitsandbytes` | ≥ 0.44 | 4-bit NF4 quantization |
+| `peft` | ≥ 0.15 | LoRA adapters |
+| `trl` | (see env file) | SFT training (`SFTTrainer` in current TRL) |
+| `accelerate` | ≥ 1.3 | Device placement + mixed precision |
+| `wandb` | ≥ 0.19 | Experiment tracking (optional) |
+
+> **bitsandbytes on a cluster GPU node:**  If the generic `bitsandbytes` wheel
+> does not detect your CUDA version, install the CUDA-specific build:
+> ```bash
+> pip install bitsandbytes \
+>     --index-url https://huggingface.github.io/bitsandbytes-cuda-versions/
+> ```
+
+---
+
+### Make sure Cuda and Pytorch available:
+
+```bash
+python - <<'PY'
+import torch
+print("torch:", torch.__version__)
+print("cuda available:", torch.cuda.is_available())
+print("torch cuda:", torch.version.cuda)
+PY
+```
+### Then install falsh-attn:
+
+```bash
+pip install "flash-attn>=2.7.0"
+```
+### If that doesn't work try this:
+```bash
+pip install "flash-attn>=2.7.0" --no-build-isolation
+```
+
 ## Directory layout
 
 ```
@@ -32,7 +88,7 @@ fine-tuning/
 
 ---
 
-## 1 · Dataset generation (`create_sft_dataset.py`)
+## 2 · Dataset generation (`create_sft_dataset.py`)
 
 ### What it does
 
@@ -104,7 +160,7 @@ python fine-tuning/create_sft_dataset.py --workers 8
 
 ---
 
-## 2 · QLoRA fine-tuning (`train.py`)
+## 3 · QLoRA fine-tuning (`train.py`)
 
 ### Method: QLoRA
 
@@ -196,7 +252,7 @@ python fine-tuning/train.py --help
 
 ---
 
-## 3 · Merging adapters for vLLM (`merge.py`)
+## 4 · Merging adapters for vLLM (`merge.py`)
 
 vLLM loads a standard HuggingFace model directory.  Before serving the
 fine-tuned model you must merge the LoRA adapter back into the base weights.
@@ -213,7 +269,7 @@ with one).  The output directory is a normal HuggingFace model directory.
 
 ---
 
-## 4 · Serving and evaluating the fine-tuned model
+## 5 · Serving and evaluating the fine-tuned model
 
 ### Start vLLM
 
@@ -242,33 +298,6 @@ comparable.
 
 ---
 
-## 5 · Environment setup
-
-All dependencies are in the root `environment.yml`.  Fine-tuning requires
-these additional packages (already added):
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `bitsandbytes` | ≥ 0.44 | 4-bit NF4 quantization |
-| `peft` | ≥ 0.15 | LoRA adapters |
-| `trl` | ≥ 0.17 | SFTTrainer + DataCollatorForCompletionOnlyLM |
-| `accelerate` | ≥ 1.3 | Device placement + mixed precision |
-| `wandb` | ≥ 0.19 | Experiment tracking (optional) |
-
-```bash
-# Create or update the Triad conda environment
-conda env update -f environment.yml --prune
-```
-
-> **bitsandbytes on a cluster GPU node:**  If the generic `bitsandbytes` wheel
-> does not detect your CUDA version, install the CUDA-specific build:
-> ```bash
-> pip install bitsandbytes \
->     --index-url https://huggingface.github.io/bitsandbytes-cuda-versions/
-> ```
-
----
-
 ## 6 · Typical SLURM job script
 
 ```bash
@@ -281,7 +310,7 @@ conda env update -f environment.yml --prune
 #SBATCH --output=logs/%j.out
 
 module load StdEnv/2023
-conda activate Triad
+conda activate RepoBehave_finetune
 
 python fine-tuning/train.py \
     --model /home/hamedth/projects/def-hemmati-ac/hamedth/hugging_face/gemma4-4b \

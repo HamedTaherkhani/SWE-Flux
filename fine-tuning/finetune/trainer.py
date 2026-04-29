@@ -1,4 +1,4 @@
-"""SFTTrainer construction with completion-only loss masking.
+"""SFTTrainer construction with assistant-turn loss masking.
 
 Loss is computed only on assistant (model) turns.  System prompts, user
 messages, and tool-response messages are masked to -100 so they contribute
@@ -6,30 +6,26 @@ no gradient signal.  This is the correct objective for imitation-learning
 from teacher trajectories.
 
 Gemma 4 token boundaries
-─────────────────────────
+------------------------
   User turn     starts with:  <start_of_turn>user\n
   Model turn    starts with:  <start_of_turn>model\n
   Either turn   ends with:    <end_of_turn>\n
 
-DataCollatorForCompletionOnlyLM scans the tokenized sequence for every
-occurrence of the response_template token ids and masks everything that
-precedes each occurrence.  With a multi-turn conversation this correctly
-unmasks all model turns in one pass.
+The local collator scans each tokenized conversation for model turns and masks
+everything outside those spans to -100.  This replaces TRL's removed
+DataCollatorForCompletionOnlyLM while keeping the same completion-only
+training objective for preformatted chat transcripts.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+import inspect
+from typing import Any, List
 
 from datasets import Dataset
-
-try:
-    from trl import SFTConfig, SFTTrainer, DataCollatorForCompletionOnlyLM
-except ImportError:
-    # Older TRL (< 0.10) used a different import path for the collator.
-    from trl import SFTConfig, SFTTrainer
-    from trl.trainer import DataCollatorForCompletionOnlyLM  # type: ignore[no-redef]
+import torch
+from trl import SFTConfig, SFTTrainer
 
 from .config import TrainingConfig
 
@@ -41,13 +37,113 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 RESPONSE_TEMPLATE = "<start_of_turn>model\n"
 INSTRUCTION_TEMPLATE = "<start_of_turn>user\n"
+END_TEMPLATE = "<end_of_turn>\n"
 
 
 # ---------------------------------------------------------------------------
 # Collator
 # ---------------------------------------------------------------------------
 
-def _build_collator(tokenizer: Any) -> DataCollatorForCompletionOnlyLM:
+class AssistantTurnDataCollator:
+    """Pad tokenized examples and compute loss only on model turns."""
+
+    def __init__(
+        self,
+        *,
+        tokenizer: Any,
+        response_template: List[int],
+        end_template: List[int],
+        max_length: int,
+    ) -> None:
+        self.tokenizer = tokenizer
+        self.response_template = response_template
+        self.end_template = end_template
+        self.max_length = max_length
+        self.pad_token_id = (
+            tokenizer.pad_token_id
+            if tokenizer.pad_token_id is not None
+            else tokenizer.eos_token_id
+        )
+        self._warned_no_response = False
+
+    @staticmethod
+    def _find_subsequence(sequence: List[int], subsequence: List[int], start: int = 0) -> int:
+        if not subsequence:
+            return -1
+        last_start = len(sequence) - len(subsequence)
+        for idx in range(start, last_start + 1):
+            if sequence[idx: idx + len(subsequence)] == subsequence:
+                return idx
+        return -1
+
+    def _assistant_labels(self, input_ids: List[int]) -> List[int]:
+        labels = [-100] * len(input_ids)
+        cursor = 0
+        found_response = False
+
+        while cursor < len(input_ids):
+            response_start = self._find_subsequence(
+                input_ids,
+                self.response_template,
+                cursor,
+            )
+            if response_start == -1:
+                break
+
+            found_response = True
+            label_start = response_start + len(self.response_template)
+            end_start = self._find_subsequence(input_ids, self.end_template, label_start)
+            label_end = len(input_ids) if end_start == -1 else end_start + len(self.end_template)
+
+            labels[label_start:label_end] = input_ids[label_start:label_end]
+            cursor = label_end
+
+        if not found_response and not self._warned_no_response:
+            logger.warning(
+                "No assistant response boundary found in at least one batch item; "
+                "that item will contribute no loss."
+            )
+            self._warned_no_response = True
+
+        return labels
+
+    def __call__(self, examples: List[dict[str, Any]]) -> dict[str, torch.Tensor]:
+        input_id_lists: List[List[int]] = []
+        label_lists: List[List[int]] = []
+
+        for example in examples:
+            input_ids = list(example["input_ids"])
+            if self.max_length is not None:
+                input_ids = input_ids[: self.max_length]
+
+            input_id_lists.append(input_ids)
+            label_lists.append(self._assistant_labels(input_ids))
+
+        batch_size = len(input_id_lists)
+        batch_max = max(len(ids) for ids in input_id_lists)
+
+        input_ids_tensor = torch.full(
+            (batch_size, batch_max),
+            self.pad_token_id,
+            dtype=torch.long,
+        )
+        attention_mask = torch.zeros((batch_size, batch_max), dtype=torch.long)
+        labels_tensor = torch.full((batch_size, batch_max), -100, dtype=torch.long)
+
+        for row, (input_ids, labels) in enumerate(zip(input_id_lists, label_lists)):
+            length = len(input_ids)
+            input_ids_tensor[row, :length] = torch.tensor(input_ids, dtype=torch.long)
+            attention_mask[row, :length] = 1
+            labels_tensor[row, :length] = torch.tensor(labels, dtype=torch.long)
+
+        return {
+            "input_ids": input_ids_tensor,
+            "attention_mask": attention_mask,
+            "labels": labels_tensor,
+        }
+
+
+def _build_collator(tokenizer: Any, max_length: int) -> AssistantTurnDataCollator:
     """
     Build a completion-only data collator that masks non-assistant tokens.
 
@@ -61,16 +157,19 @@ def _build_collator(tokenizer: Any) -> DataCollatorForCompletionOnlyLM:
     instruction_ids: List[int] = tokenizer.encode(
         INSTRUCTION_TEMPLATE, add_special_tokens=False
     )
+    end_ids: List[int] = tokenizer.encode(
+        END_TEMPLATE, add_special_tokens=False
+    )
 
-    collator = DataCollatorForCompletionOnlyLM(
-        response_template=response_ids,
-        instruction_template=instruction_ids,
+    collator = AssistantTurnDataCollator(
         tokenizer=tokenizer,
-        mlm=False,
+        response_template=response_ids,
+        end_template=end_ids,
+        max_length=max_length,
     )
     logger.info(
-        "DataCollatorForCompletionOnlyLM — response_ids: %s  instruction_ids: %s",
-        response_ids, instruction_ids,
+        "AssistantTurnDataCollator — response_ids: %s  instruction_ids: %s  end_ids: %s",
+        response_ids, instruction_ids, end_ids,
     )
     return collator
 
@@ -80,7 +179,7 @@ def _build_collator(tokenizer: Any) -> DataCollatorForCompletionOnlyLM:
 # ---------------------------------------------------------------------------
 
 def _build_sft_config(cfg: TrainingConfig) -> SFTConfig:
-    return SFTConfig(
+    kwargs = dict(
         # Output
         output_dir=str(cfg.output_dir),
 
@@ -127,9 +226,23 @@ def _build_sft_config(cfg: TrainingConfig) -> SFTConfig:
 
         # SFT-specific
         dataset_text_field="text",
-        max_seq_length=cfg.data.max_seq_length,
         packing=False,   # packing would interleave conversations — keep them separate
     )
+    sft_params = inspect.signature(SFTConfig.__init__).parameters
+    length_param = (
+        "max_seq_length"
+        if "max_seq_length" in sft_params
+        else "max_length"
+    )
+    kwargs[length_param] = cfg.data.max_seq_length
+
+    unsupported = sorted(set(kwargs) - set(sft_params))
+    for key in unsupported:
+        kwargs.pop(key)
+    if unsupported:
+        logger.info("Ignoring unsupported SFTConfig arguments for this TRL version: %s", unsupported)
+
+    return SFTConfig(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +256,7 @@ def build_trainer(
     dataset: Dataset,
 ) -> SFTTrainer:
     """Build the SFTTrainer.  Caller is responsible for calling .train()."""
-    collator = _build_collator(tokenizer)
+    collator = _build_collator(tokenizer, cfg.data.max_seq_length)
     sft_cfg = _build_sft_config(cfg)
 
     trainer = SFTTrainer(

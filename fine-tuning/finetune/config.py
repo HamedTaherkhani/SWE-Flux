@@ -16,6 +16,20 @@ _DEFAULT_TARGET_MODULES: List[str] = [
     "gate_proj", "up_proj", "down_proj",
 ]
 
+# Gemma 4 4B wraps projection layers in Gemma4ClippableLinear.  PEFT cannot
+# attach LoRA to that wrapper directly, so target the supported inner linear.
+GEMMA4_4B_TARGET_MODULES: List[str] = [
+    "q_proj.linear", "k_proj.linear", "v_proj.linear", "o_proj.linear",
+    "gate_proj.linear", "up_proj.linear", "down_proj.linear",
+]
+
+
+def _default_target_modules_for_model(model_path: str) -> List[str]:
+    model_name = Path(model_path).name.lower()
+    if model_name == "gemma4-4b":
+        return list(GEMMA4_4B_TARGET_MODULES)
+    return list(_DEFAULT_TARGET_MODULES)
+
 
 # ---------------------------------------------------------------------------
 # Configuration dataclasses
@@ -130,7 +144,7 @@ def parse_train_args(argv: Optional[List[str]] = None) -> TrainingConfig:
                       help="LoRA alpha (scaling = alpha / r)")
     lora.add_argument("--lora-dropout", type=float, default=0.05)
     lora.add_argument(
-        "--lora-target-modules", nargs="+", default=_DEFAULT_TARGET_MODULES,
+        "--lora-target-modules", nargs="+", default=None,
         metavar="MODULE",
         help="Linear layer names to apply LoRA adapters to",
     )
@@ -189,7 +203,11 @@ def parse_train_args(argv: Optional[List[str]] = None) -> TrainingConfig:
         r=args.lora_r,
         alpha=args.lora_alpha,
         dropout=args.lora_dropout,
-        target_modules=args.lora_target_modules,
+        target_modules=(
+            args.lora_target_modules
+            if args.lora_target_modules is not None
+            else _default_target_modules_for_model(args.model)
+        ),
     )
     quant_cfg = QuantizationConfig(
         load_in_4bit=not args.no_4bit,

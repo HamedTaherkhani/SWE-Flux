@@ -23,7 +23,8 @@ Design:
 Usage:
   python create_sft_dataset.py                        # all repos
   python create_sft_dataset.py --repo Sympy           # one repo
-  python create_sft_dataset.py --repo Sympy faker_qa  # several repos
+  python create_sft_dataset.py --repo Sympy,faker_qa  # several repos (comma-separated)
+  python create_sft_dataset.py --repo Sympy faker_qa  # several repos (multiple args)
   python create_sft_dataset.py --repo Sympy --instances core_expand_mul_indirect_output
 """
 
@@ -896,6 +897,19 @@ def _available_repos() -> List[str]:
     )
 
 
+def _expand_repo_cli_args(repo_values: Optional[List[str]]) -> Optional[List[str]]:
+    """Turn --repo CLI values into a flat list of names (comma-separated + multiple args)."""
+    if not repo_values:
+        return None
+    names: List[str] = []
+    for raw in repo_values:
+        for part in str(raw).split(","):
+            name = part.strip()
+            if name:
+                names.append(name)
+    return names or None
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -919,15 +933,16 @@ def main() -> None:
     parser.add_argument(
         "--repo", nargs="*", metavar="REPO", default=None,
         help=(
-            f"Repo name(s) to process (default: all). "
-            f"Available: {', '.join(available)}"
+            f"Repo name(s): comma-separated list and/or multiple values (default: all). "
+            f"Example: --repo A,B or --repo A B. Available: {', '.join(available)}"
         ),
     )
     parser.add_argument("--instances", nargs="*", metavar="ID",
                         help="Specific instance IDs (only valid when --repo names a single repo)")
     args = parser.parse_args()
 
-    if args.instances and args.repo and len(args.repo) != 1:
+    repo_names_arg = _expand_repo_cli_args(args.repo)
+    if args.instances and repo_names_arg and len(repo_names_arg) != 1:
         parser.error("--instances requires exactly one repo via --repo")
 
     # API key: CLI > env var > .env file
@@ -946,7 +961,7 @@ def main() -> None:
     client = openai.OpenAI(api_key=api_key)
     repos_json = _load_repos_json()
 
-    repo_names = args.repo if args.repo else available
+    repo_names = repo_names_arg if repo_names_arg else available
     repo_configs = build_repo_configs(repo_names, repos_json)
     if not repo_configs:
         print("No valid repos found. Aborting.")
