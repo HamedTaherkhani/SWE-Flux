@@ -1,0 +1,31 @@
+{
+  "question_kind": "program_state_prediction",
+  "question": "Use `tests/qa/testcase.py`, class `TestResolversSubParametersDictStateQA`, method `test_resolvers_sub_parameters_dict_state_case`. The test calls `cfnlint.jsonschema._resolvers_cfn.sub(validator, instance)` (defined at line 436 of `src/cfnlint/jsonschema/_resolvers_cfn.py`) with `instance = [\"${StackName}-${!literal}-${StackName}.${Domain.Suffix}+${Env}_${Domain.Subdomain}@${Owner}\", {\"Env\": \"prod\", \"Domain.Suffix\": \"example.com\"}]`. Inside `sub`, the array branch executes: line 446 sets `string = instance[0]`; line 447 sets `parameters = deepcopy(instance[1])`; line 453 sets `sub_parameters = REGEX_SUB_PARAMETERS.findall(string)` (`REGEX_SUB_PARAMETERS = re.compile(r\"\\${\\s*([^!\\s].*?)\\s*}\")` from `cfnlint.helpers`); the loop at lines 454-460 iterates `sub_parameters` and -- for each name not already a key of `parameters` -- assigns `parameters[name] = {\"Fn::GetAtt\": name}` if `name` contains `.`, else `parameters[name] = {\"Ref\": name}`. Line 462 then iterates `for resolved_parameters in _sub_parameter_expansion(validator, parameters)`. Capture the value of local variable `parameters` at the FIRST `call` event of `cfnlint.jsonschema._resolvers_cfn._sub_parameter_expansion` (i.e., the outermost invocation handed in by `sub`, BEFORE the helper performs its `parameters = parameters.copy()` rebind on line 395 and BEFORE any recursive `parameters.pop(key)` on line 407). Return the answer as the field `parameters` whose value is a JSON object. Preserve the exact insertion-order of keys.",
+  "template_answer": {
+    "parameters": {
+      "<key>": "<str|object>"
+    }
+  },
+  "oracle_answer": {
+    "parameters": {
+      "Env": "prod",
+      "Domain.Suffix": "example.com",
+      "StackName": {
+        "Ref": "StackName"
+      },
+      "Domain.Subdomain": {
+        "Fn::GetAtt": "Domain.Subdomain"
+      },
+      "Owner": {
+        "Ref": "Owner"
+      }
+    }
+  },
+  "execution": {
+    "trace_target": "cfnlint.jsonschema._resolvers_cfn._sub_parameter_expansion",
+    "trace_events": [
+      "call"
+    ],
+    "pytest_nodeid": "tests/qa/testcase.py::TestResolversSubParametersDictStateQA::test_resolvers_sub_parameters_dict_state_case"
+  }
+}
