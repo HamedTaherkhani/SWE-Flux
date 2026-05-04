@@ -1,0 +1,83 @@
+{
+  "debug": {
+    "coercion_note_count": 6,
+    "coercion_notes": [
+      "$.outer_keys[1][6]: coerced list->str",
+      "$.outer_keys[2][6]: coerced int->str",
+      "$.outer_keys[3][4]: coerced int->str",
+      "$.outer_keys[3][7]: coerced list->str",
+      "$.outer_keys[4][5]: coerced dict->str",
+      "$.outer_keys[6][4]: coerced list->str"
+    ],
+    "cost": {
+      "billable_tokens": {
+        "input_cached": 84096,
+        "input_uncached": 95948,
+        "output": 1002
+      },
+      "configured": true,
+      "cost_breakdown_usd": {
+        "input_cached": 0.021024,
+        "input_uncached": 0.23987000000000003,
+        "output": 0.015030000000000002
+      },
+      "cost_usd": 0.275924,
+      "currency": "USD",
+      "model_lookup": {
+        "match_type": "alias",
+        "matched": true,
+        "matched_model": "gpt-5.4",
+        "model": "gpt-5.4-2026-03-05",
+        "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json",
+        "provider": "openai"
+      },
+      "pricing": {
+        "cached_input_cost_per_1m": 0.25,
+        "input_cost_per_1m": 2.5,
+        "output_cost_per_1m": 15.0
+      },
+      "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json"
+    },
+    "question_path": "/home/hamed/PycharmProjects/RepoBehave/qa_instances_eval/cfnlint_qa/template_search_deep_keys_outer_paths_state/question.json",
+    "raw_response": "{\"outer_keys\":[[\"Resources\",\"Stack\",\"Properties\",\"Parameters\",\"Greeting\",\"Fn::Sub\",\"Hi ${World}\"],[\"Resources\",\"Stack\",\"Properties\",\"Parameters\",\"Region\",\"Fn::Select\",[0,{\"Fn::GetAZs\":\"\"}]],[\"Resources\",\"Stack\",\"Properties\",\"Parameters\",\"Region\",\"Fn::Select\",1,\"Fn::GetAZs\",\"\"],[\"Resources\",\"Stack\",\"Properties\",\"Tags\",0,\"Value\",\"Fn::If\",[\"IsProd\",\"now\",\"later\"]],[\"Resources\",\"Stack\",\"Properties\",\"Transform\",\"Fn::Transform\",{\"Name\":\"Macro\",\"Parameters\":{\"Foo\":{\"Fn::Sub\":\"x-${Y}\"}}}],[\"Resources\",\"Stack\",\"Properties\",\"Transform\",\"Fn::Transform\",\"Parameters\",\"Foo\",\"Fn::Sub\",\"x-${Y}\"],[\"Outputs\",\"Bucket\",\"Value\",\"Fn::GetAtt\",[\"S3Bucket\",\"Arn\"]]]}",
+    "reasoning_trace": {
+      "concise_thought": "I verified the test template structure and `_search_deep_keys` recursion rules, then enumerated every `Fn::` key in depth-first insertion order for the explicit regex call only, accounting for the function\u2019s behavior of recording a matching key/value path before recursing into dict/list values.",
+      "execution_steps": [
+        "Read the QA test to identify `_TEMPLATE`, the explicit call `search_deep_keys(re.compile(r\"^Fn::\"), includeGlobals=False)`, and the expected traversal scope.",
+        "Read `Template._search_deep_keys` and `search_deep_keys` to confirm dict iteration order, list enumeration order, regex matching on string keys, append-value-then-pop path handling, and recursion into matching dict/list values.",
+        "Excluded constructor-time scans for `Ref`, `Fn::Sub`, `Fn::If`, `Fn::FindInMap`, and `Fn::ForEach` because they occur earlier and do not affect the local `keys` returned by the test\u2019s explicit regex-pattern invocation.",
+        "Walked the template manually in depth-first order: Resources \u2192 Stack \u2192 Properties \u2192 Parameters/Greeting, Region/Fn::Select and nested Fn::GetAZs, Tags[0]/Value/Fn::If, Transform/Fn::Transform and nested Parameters/Foo/Fn::Sub, then Outputs/Bucket/Value/Fn::GetAtt.",
+        "Preserved the outer-return `keys` ordering exactly as accumulated by recursive concatenation from left-to-right traversal."
+      ],
+      "key_evidence": [
+        "`_search_deep_keys` appends `path + [key, value]` immediately when a dict key matches the search pattern, then removes the value from the path and still recurses into that value if it is a dict or list.",
+        "For lists, recursion uses `path + [index]`, so nested matches under `Fn::Select` and `Tags[0]` include numeric positions in the path before later JSON coercion turned them into strings in the final answer format.",
+        "The template contains exactly seven `Fn::` matches reachable with `includeGlobals=False`: `Fn::Sub` under Greeting, `Fn::Select`, nested `Fn::GetAZs`, `Fn::If`, `Fn::Transform`, nested `Fn::Sub` inside Transform.Parameters.Foo, and `Fn::GetAtt` in Outputs.",
+        "A matching dict/list value yields both a primary entry for the matching key and additional entries from recursion into that value, which is why both `Fn::Transform` and its nested `Fn::Sub`, and both `Fn::Select` and nested `Fn::GetAZs`, appear."
+      ],
+      "uncertainties": [
+        "The final delivered JSON shows post-processing coercions of ints/lists/dicts to strings for schema compliance; the underlying `_search_deep_keys` runtime values before coercion were native Python list/dict/int objects in those positions.",
+        "I relied on the provided file contents and trace rather than re-executing code, so the rationale reflects static reconstruction of the completed answer."
+      ]
+    },
+    "reasoning_trace_error": "",
+    "reasoning_trace_raw": "{\"concise_thought\":\"I verified the test template structure and `_search_deep_keys` recursion rules, then enumerated every `Fn::` key in depth-first insertion order for the explicit regex call only, accounting for the function\u2019s behavior of recording a matching key/value path before recursing into dict/list values.\",\"execution_steps\":[\"Read the QA test to identify `_TEMPLATE`, the explicit call `search_deep_keys(re.compile(r\\\"^Fn::\\\"), includeGlobals=False)`, and the expected traversal scope.\",\"Read `Template._search_deep_keys` and `search_deep_keys` to confirm dict iteration order, list enumeration order, regex matching on string keys, append-value-then-pop path handling, and recursion into matching dict/list values.\",\"Excluded constructor-time scans for `Ref`, `Fn::Sub`, `Fn::If`, `Fn::FindInMap`, and `Fn::ForEach` because they occur earlier and do not affect the local `keys` returned by the test\u2019s explicit regex-pattern invocation.\",\"Walked the template manually in depth-first order: Resources \u2192 Stack \u2192 Properties \u2192 Parameters/Greeting, Region/Fn::Select and nested Fn::GetAZs, Tags[0]/Value/Fn::If, Transform/Fn::Transform and nested Parameters/Foo/Fn::Sub, then Outputs/Bucket/Value/Fn::GetAtt.\",\"Preserved the outer-return `keys` ordering exactly as accumulated by recursive concatenation from left-to-right traversal.\"],\"key_evidence\":[\"`_search_deep_keys` appends `path + [key, value]` immediately when a dict key matches the search pattern, then removes the value from the path and still recurses into that value if it is a dict or list.\",\"For lists, recursion uses `path + [index]`, so nested matches under `Fn::Select` and `Tags[0]` include numeric positions in the path before later JSON coercion turned them into strings in the final answer format.\",\"The template contains exactly seven `Fn::` matches reachable with `includeGlobals=False`: `Fn::Sub` under Greeting, `Fn::Select`, nested `Fn::GetAZs`, `Fn::If`, `Fn::Transform`, nested `Fn::Sub` inside Transform.Parameters.Foo, and `Fn::GetAtt` in Outputs.\",\"A matching dict/list value yields both a primary entry for the matching key and additional entries from recursion into that value, which is why both `Fn::Transform` and its nested `Fn::Sub`, and both `Fn::Select` and nested `Fn::GetAZs`, appear.\"],\"uncertainties\":[\"The final delivered JSON shows post-processing coercions of ints/lists/dicts to strings for schema compliance; the underlying `_search_deep_keys` runtime values before coercion were native Python list/dict/int objects in those positions.\",\"I relied on the provided file contents and trace rather than re-executing code, so the rationale reflects static reconstruction of the completed answer.\"]}",
+    "repair_attempts": 0,
+    "repair_errors": [],
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cached_input_tokens": 84096,
+      "input_tokens": 180044,
+      "model": "gpt-5.4-2026-03-05",
+      "output_tokens": 1002,
+      "provider": "openai",
+      "reasoning_tokens": 0,
+      "requests": 6,
+      "total_tokens": 181046,
+      "usage_missing_requests": 0
+    }
+  },
+  "instance": "template_search_deep_keys_outer_paths_state",
+  "status": "ok"
+}

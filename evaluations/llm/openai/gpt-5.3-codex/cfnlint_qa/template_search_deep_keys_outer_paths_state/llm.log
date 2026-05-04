@@ -1,0 +1,84 @@
+{
+  "debug": {
+    "coercion_note_count": 6,
+    "coercion_notes": [
+      "$.outer_keys[1][6]: coerced list->str",
+      "$.outer_keys[2][6]: coerced int->str",
+      "$.outer_keys[3][4]: coerced int->str",
+      "$.outer_keys[3][7]: coerced list->str",
+      "$.outer_keys[4][5]: coerced dict->str",
+      "$.outer_keys[6][4]: coerced list->str"
+    ],
+    "cost": {
+      "billable_tokens": {
+        "input_cached": 38912,
+        "input_uncached": 85754,
+        "output": 764
+      },
+      "configured": true,
+      "cost_breakdown_usd": {
+        "input_cached": 0.0068096,
+        "input_uncached": 0.1500695,
+        "output": 0.010696
+      },
+      "cost_usd": 0.1675751,
+      "currency": "USD",
+      "model_lookup": {
+        "match_type": "exact",
+        "matched": true,
+        "matched_model": "gpt-5.3-codex",
+        "model": "gpt-5.3-codex",
+        "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json",
+        "provider": "openai"
+      },
+      "pricing": {
+        "cached_input_cost_per_1m": 0.175,
+        "input_cost_per_1m": 1.75,
+        "output_cost_per_1m": 14.0
+      },
+      "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json"
+    },
+    "question_path": "/home/hamed/PycharmProjects/RepoBehave/qa_instances_eval/cfnlint_qa/template_search_deep_keys_outer_paths_state/question.json",
+    "raw_response": "{\"outer_keys\":[[\"Resources\",\"Stack\",\"Properties\",\"Parameters\",\"Greeting\",\"Fn::Sub\",\"Hi ${World}\"],[\"Resources\",\"Stack\",\"Properties\",\"Parameters\",\"Region\",\"Fn::Select\",[0,{\"Fn::GetAZs\":\"\"}]],[\"Resources\",\"Stack\",\"Properties\",\"Parameters\",\"Region\",\"Fn::Select\",1,\"Fn::GetAZs\",\"\"],[\"Resources\",\"Stack\",\"Properties\",\"Tags\",0,\"Value\",\"Fn::If\",[\"IsProd\",\"now\",\"later\"]],[\"Resources\",\"Stack\",\"Properties\",\"Transform\",\"Fn::Transform\",{\"Name\":\"Macro\",\"Parameters\":{\"Foo\":{\"Fn::Sub\":\"x-${Y}\"}}}],[\"Resources\",\"Stack\",\"Properties\",\"Transform\",\"Fn::Transform\",\"Parameters\",\"Foo\",\"Fn::Sub\",\"x-${Y}\"],[\"Outputs\",\"Bucket\",\"Value\",\"Fn::GetAtt\",[\"S3Bucket\",\"Arn\"]]]}",
+    "reasoning_trace": {
+      "concise_thought": "I verified the test template structure and the _search_deep_keys recursion behavior, then enumerated matches for regex ^Fn:: in depth-first insertion order, including both direct key matches (with value appended) and recursive descent into matching dict/list values.",
+      "execution_steps": [
+        "Read the QA test file to identify the exact test case and embedded _TEMPLATE used for search_deep_keys(re.compile('^Fn::'), includeGlobals=False).",
+        "Read Template._search_deep_keys implementation around line 351 to confirm traversal semantics for dicts/lists, key matching, path/value append behavior, and recursion order.",
+        "Applied the function logic manually to the template tree from root through Resources and Outputs, preserving insertion order and list enumerate order.",
+        "Recorded each matched Fn::* key path with its matched value as final element, including nested matches inside values of matching keys (e.g., Fn::Select containing Fn::GetAZs, Fn::Transform containing nested Fn::Sub).",
+        "Returned outermost keys list in exact depth-first order produced by the explicit regex call, excluding constructor pre-scans since they are separate calls."
+      ],
+      "key_evidence": [
+        "_search_deep_keys appends [.., matching_key, matching_value] when key matches, then trims value and still recurses into dict/list values.",
+        "Dict traversal is insertion-ordered; list traversal uses enumerate index order, yielding deterministic depth-first output.",
+        "Test invokes cfn.search_deep_keys(re.compile(r'^Fn::'), includeGlobals=False), so only Fn::* keys are matched for this call.",
+        "Matching composite values produce two layers of results: one for the matching key itself and additional ones from recursive descent (seen for Fn::Select and Fn::Transform).",
+        "Final ordered matches correspond to Fn::Sub (Greeting), Fn::Select (Region), nested Fn::GetAZs, Fn::If (Tags[0].Value), Fn::Transform, nested Fn::Sub under Transform.Parameters.Foo, and Fn::GetAtt (Outputs.Bucket.Value)."
+      ],
+      "uncertainties": [
+        "No material uncertainty in ordering or inclusion after confirming implementation semantics and template content.",
+        "A formatting coercion step converted non-string terminal elements to strings in the final emitted JSON, but logical match set/order remained unchanged."
+      ]
+    },
+    "reasoning_trace_error": "",
+    "reasoning_trace_raw": "{\"concise_thought\":\"I verified the test template structure and the _search_deep_keys recursion behavior, then enumerated matches for regex ^Fn:: in depth-first insertion order, including both direct key matches (with value appended) and recursive descent into matching dict/list values.\",\"execution_steps\":[\"Read the QA test file to identify the exact test case and embedded _TEMPLATE used for search_deep_keys(re.compile('^Fn::'), includeGlobals=False).\",\"Read Template._search_deep_keys implementation around line 351 to confirm traversal semantics for dicts/lists, key matching, path/value append behavior, and recursion order.\",\"Applied the function logic manually to the template tree from root through Resources and Outputs, preserving insertion order and list enumerate order.\",\"Recorded each matched Fn::* key path with its matched value as final element, including nested matches inside values of matching keys (e.g., Fn::Select containing Fn::GetAZs, Fn::Transform containing nested Fn::Sub).\",\"Returned outermost keys list in exact depth-first order produced by the explicit regex call, excluding constructor pre-scans since they are separate calls.\"],\"key_evidence\":[\"_search_deep_keys appends [.., matching_key, matching_value] when key matches, then trims value and still recurses into dict/list values.\",\"Dict traversal is insertion-ordered; list traversal uses enumerate index order, yielding deterministic depth-first output.\",\"Test invokes cfn.search_deep_keys(re.compile(r'^Fn::'), includeGlobals=False), so only Fn::* keys are matched for this call.\",\"Matching composite values produce two layers of results: one for the matching key itself and additional ones from recursive descent (seen for Fn::Select and Fn::Transform).\",\"Final ordered matches correspond to Fn::Sub (Greeting), Fn::Select (Region), nested Fn::GetAZs, Fn::If (Tags[0].Value), Fn::Transform, nested Fn::Sub under Transform.Parameters.Foo, and Fn::GetAtt (Outputs.Bucket.Value).\"],\"uncertainties\":[\"No material uncertainty in ordering or inclusion after confirming implementation semantics and template content.\",\"A formatting coercion step converted non-string terminal elements to strings in the final emitted JSON, but logical match set/order remained unchanged.\"]}",
+    "repair_attempts": 0,
+    "repair_errors": [],
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cached_input_tokens": 38912,
+      "input_tokens": 124666,
+      "model": "gpt-5.3-codex",
+      "output_tokens": 764,
+      "provider": "openai",
+      "reasoning_tokens": 0,
+      "requests": 5,
+      "total_tokens": 125430,
+      "usage_missing_requests": 0
+    }
+  },
+  "instance": "template_search_deep_keys_outer_paths_state",
+  "status": "ok"
+}

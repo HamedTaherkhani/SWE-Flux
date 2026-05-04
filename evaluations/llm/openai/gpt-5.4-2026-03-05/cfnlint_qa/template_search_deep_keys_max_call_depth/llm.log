@@ -1,0 +1,80 @@
+{
+  "debug": {
+    "coercion_note_count": 1,
+    "coercion_notes": [
+      "$.maximum_call_stack_depth: coerced str->int"
+    ],
+    "cost": {
+      "billable_tokens": {
+        "input_cached": 175232,
+        "input_uncached": 99601,
+        "output": 897
+      },
+      "configured": true,
+      "cost_breakdown_usd": {
+        "input_cached": 0.043808,
+        "input_uncached": 0.2490025,
+        "output": 0.013455
+      },
+      "cost_usd": 0.30626549999999997,
+      "currency": "USD",
+      "model_lookup": {
+        "match_type": "alias",
+        "matched": true,
+        "matched_model": "gpt-5.4",
+        "model": "gpt-5.4-2026-03-05",
+        "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json",
+        "provider": "openai"
+      },
+      "pricing": {
+        "cached_input_cost_per_1m": 0.25,
+        "input_cost_per_1m": 2.5,
+        "output_cost_per_1m": 15.0
+      },
+      "pricing_file": "/home/hamed/PycharmProjects/RepoBehave/evaluations/llm/provider_model_costs.json"
+    },
+    "question_path": "/home/hamed/PycharmProjects/RepoBehave/qa_instances_eval/cfnlint_qa/template_search_deep_keys_max_call_depth/question.json",
+    "raw_response": "{\"maximum_call_stack_depth\":\"9\"}",
+    "reasoning_trace": {
+      "concise_thought": "The maximum in-flight `_search_deep_keys` depth is 9 because `Template.__init__` triggers five `search_deep_keys` passes, but stack depth is determined by the single deepest recursive path in the template, not by the number of passes. The root-template traversal reaches a deepest nested chain of 9 `_search_deep_keys` frames under the method\u2019s dict/list recursion rules, while each Globals traversal only adds a shallow empty-dict call and never exceeds that depth.",
+      "execution_steps": [
+        "Identify from the test that constructing `Template(\"foo.yaml\", _TEMPLATE, [\"us-east-1\"])` is the only relevant action.",
+        "Use `Template.__init__` behavior: it invokes `search_deep_keys` five times for `Ref`, `Fn::Sub`, `Fn::If`, `Fn::FindInMap`, and `FUNCTION_FOR_EACH`.",
+        "Use `search_deep_keys` behavior: each invocation calls `_search_deep_keys(searchText, self.template, [])` on the root, and also on `self.transform_pre.get(\"Globals\")` when `includeGlobals=True`.",
+        "Account for this test\u2019s `Globals == {}`: the Globals-side call enters the empty-dict path and is shallow, so it cannot set the maximum.",
+        "Apply `_search_deep_keys` recursion rules exactly: dict values recurse only when the value is dict/list; list values recurse once per item; scalar dict values do not recurse; scalar list items still get a call that bottoms out.",
+        "Trace the deepest nested dict/list path in the template root under those rules and count only simultaneous `_search_deep_keys` frames.",
+        "The deepest root traversal reaches 9 concurrent `_search_deep_keys` frames; no other branch or repeated top-level pass exceeds it.",
+        "Return `maximum_call_stack_depth = 9`."
+      ],
+      "key_evidence": [
+        "`search_deep_keys` extends results from `self._search_deep_keys(searchText, self.template, [])` and, if `includeGlobals`, separately calls `_search_deep_keys(searchText, self.transform_pre.get(\"Globals\"), [])`.",
+        "The private `_search_deep_keys` recurses through dict children only for dict/list values, and through every list item; this makes maximum stack depth equal to the longest nested dict/list chain, not total node count.",
+        "The test run has empty `Globals`, so the extra per-search Globals call is shallow and contributes only depth 1 for that branch.",
+        "Although `__init__` performs five separate searches, they are sequential; simultaneous stack depth is governed by the deepest single traversal, which is 9."
+      ],
+      "uncertainties": [
+        "The exact deepest path inside `_TEMPLATE` is not reproduced in the trace, so the 9-depth result relies on the completed repository QA computation and cited file inspection rather than re-enumerating the full template structure here."
+      ]
+    },
+    "reasoning_trace_error": "",
+    "reasoning_trace_raw": "{\"concise_thought\":\"The maximum in-flight `_search_deep_keys` depth is 9 because `Template.__init__` triggers five `search_deep_keys` passes, but stack depth is determined by the single deepest recursive path in the template, not by the number of passes. The root-template traversal reaches a deepest nested chain of 9 `_search_deep_keys` frames under the method\u2019s dict/list recursion rules, while each Globals traversal only adds a shallow empty-dict call and never exceeds that depth.\",\"execution_steps\":[\"Identify from the test that constructing `Template(\\\"foo.yaml\\\", _TEMPLATE, [\\\"us-east-1\\\"])` is the only relevant action.\",\"Use `Template.__init__` behavior: it invokes `search_deep_keys` five times for `Ref`, `Fn::Sub`, `Fn::If`, `Fn::FindInMap`, and `FUNCTION_FOR_EACH`.\",\"Use `search_deep_keys` behavior: each invocation calls `_search_deep_keys(searchText, self.template, [])` on the root, and also on `self.transform_pre.get(\\\"Globals\\\")` when `includeGlobals=True`.\",\"Account for this test\u2019s `Globals == {}`: the Globals-side call enters the empty-dict path and is shallow, so it cannot set the maximum.\",\"Apply `_search_deep_keys` recursion rules exactly: dict values recurse only when the value is dict/list; list values recurse once per item; scalar dict values do not recurse; scalar list items still get a call that bottoms out.\",\"Trace the deepest nested dict/list path in the template root under those rules and count only simultaneous `_search_deep_keys` frames.\",\"The deepest root traversal reaches 9 concurrent `_search_deep_keys` frames; no other branch or repeated top-level pass exceeds it.\",\"Return `maximum_call_stack_depth = 9`.\"] ,\"key_evidence\":[\"`search_deep_keys` extends results from `self._search_deep_keys(searchText, self.template, [])` and, if `includeGlobals`, separately calls `_search_deep_keys(searchText, self.transform_pre.get(\\\"Globals\\\"), [])`.\",\"The private `_search_deep_keys` recurses through dict children only for dict/list values, and through every list item; this makes maximum stack depth equal to the longest nested dict/list chain, not total node count.\",\"The test run has empty `Globals`, so the extra per-search Globals call is shallow and contributes only depth 1 for that branch.\",\"Although `__init__` performs five separate searches, they are sequential; simultaneous stack depth is governed by the deepest single traversal, which is 9.\"],\"uncertainties\":[\"The exact deepest path inside `_TEMPLATE` is not reproduced in the trace, so the 9-depth result relies on the completed repository QA computation and cited file inspection rather than re-enumerating the full template structure here.\"]}",
+    "repair_attempts": 0,
+    "repair_errors": [],
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cached_input_tokens": 175232,
+      "input_tokens": 274833,
+      "model": "gpt-5.4-2026-03-05",
+      "output_tokens": 897,
+      "provider": "openai",
+      "reasoning_tokens": 0,
+      "requests": 8,
+      "total_tokens": 275730,
+      "usage_missing_requests": 0
+    }
+  },
+  "instance": "template_search_deep_keys_max_call_depth",
+  "status": "ok"
+}
