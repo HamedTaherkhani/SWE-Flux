@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+
+QUESTION = (
+    "Use `tests/qa/vars_object_get_item_operation_input_state_test.py`, class "
+    "`TestVarsObjectGetItemOperationInputStateQA`, method "
+    "`test_vars_object_get_item_operation_input_state_case`. The test constructs "
+    "local variable `profile` at "
+    "`tests/qa/vars_object_get_item_operation_input_state_test.py:48-51` and then "
+    "indirectly reaches the target by calling `profile.get(\"score\", -1)` at "
+    "line 75. The outer method under test is `reflex.vars.object.ObjectVar.get`, "
+    "defined at `reflex/vars/object.py:230`; it calls `self.__getitem__(key)` at "
+    "`reflex/vars/object.py:245`, which routes the literal string key through "
+    "`ObjectVar.__getitem__` at lines 211-228 and `ObjectVar.__getattr__` at "
+    "lines 300-334. The specific inner method whose input variables are being "
+    "asked about is `reflex.vars.object.ObjectItemOperation.create`, defined at "
+    "`reflex/vars/object.py:571`. What are the exact states of input variables "
+    "`object`, `key`, `_var_type`, and `_var_data` at the moment this inner method "
+    "is called? For Var-like objects, report the object fields shown in the "
+    "template, such as `_js_expr`, `_var_type`, `_var_data`, and "
+    "`_original._js_expr`; do not answer with trace `repr(...)` strings."
+)
+
+
+TEMPLATE_ANSWER = {
+    "object": {
+        "__class__": "str",
+        "_js_expr": "str",
+        "_var_type": "str",
+        "_var_data": "null | str",
+        "_original._js_expr": "str",
+        "_original.__class__": "str",
+    },
+    "key": "str | int | object summary",
+    "_var_type": "null | str",
+    "_var_data": "null | str",
+}
+
+
+def extract_result(pytest_log: Path) -> dict:
+    for line in pytest_log.read_text(encoding="utf-8").splitlines():
+        if "QA_RESULT_JSON=" in line:
+            return json.loads(line.split("QA_RESULT_JSON=", 1)[1])
+    raise RuntimeError(f"QA_RESULT_JSON marker not found in {pytest_log}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pytest-log", required=True)
+    parser.add_argument("--out", required=True)
+    args = parser.parse_args()
+
+    oracle = {
+        "question_kind": "program_state_prediction",
+        "question": QUESTION,
+        "template_answer": TEMPLATE_ANSWER,
+        "oracle_answer": extract_result(Path(args.pytest_log)),
+    }
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(oracle, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    print(json.dumps(oracle, indent=2, sort_keys=False))
+
+
+if __name__ == "__main__":
+    main()
