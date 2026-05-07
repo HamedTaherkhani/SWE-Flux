@@ -65,6 +65,7 @@ from provider_runner import (  # noqa: E402
     FINAL_JSON_PROMPT,
 )
 from container_runtime import build_container_runtime  # noqa: E402
+from run_llm_repomap_eval_host import infer_repo_subdir_for_image  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Top-level paths
@@ -244,10 +245,20 @@ def get_repo_root(cfg: RepoConfig, *, force_copy: bool = False) -> Optional[Path
         try:
             runtime = build_container_runtime("docker")
             if runtime.is_available():
-                src_dir = f"/testbed/{cfg.testbed_subdir}"
-                print(f"[{cfg.name}] Copying from Docker: {cfg.docker_image}  ({src_dir})")
                 cfg.cache_dir.mkdir(parents=True, exist_ok=True)
                 runtime.ensure_image_available(cfg.docker_image, repo_name=cfg.name)
+                # Probe the container for the actual repo subdir under /testbed.
+                # This is more robust than heuristic name matching and handles
+                # images where the repo lives directly at /testbed (returned as ".").
+                resolved_subdir = infer_repo_subdir_for_image(
+                    cfg.name,
+                    cfg.qa_dir,
+                    cfg.docker_image,
+                    container_runtime=runtime,
+                )
+                cfg.testbed_subdir = resolved_subdir
+                src_dir = "/testbed" if resolved_subdir == "." else f"/testbed/{resolved_subdir}"
+                print(f"[{cfg.name}] Copying from Docker: {cfg.docker_image}  ({src_dir})")
                 runtime.copy_dir_contents(
                     image=cfg.docker_image,
                     src_dir=src_dir,
@@ -260,7 +271,7 @@ def get_repo_root(cfg: RepoConfig, *, force_copy: bool = False) -> Optional[Path
             print(f"[{cfg.name}] Docker not available — falling back to local install")
         except Exception as exc:
             print(f"[{cfg.name}] Docker copy failed ({exc}) — falling back to local install")
-
+    
     return _find_local_package(cfg.testbed_subdir)
 
 
@@ -283,7 +294,7 @@ def _find_local_package(package_name: str) -> Optional[Path]:
 
 def remap_testbed_path(raw: str, repo_root: Path, testbed_subdir: str) -> str:
     """Translate /testbed/<subdir>/<rest> paths to the local repo cache."""
-    prefix = f"/testbed/{testbed_subdir}/"
+    prefix = "/testbed/" if testbed_subdir == "." else f"/testbed/{testbed_subdir}/"
     if raw.startswith(prefix):
         rest = raw[len(prefix):]
         remapped = repo_root / rest

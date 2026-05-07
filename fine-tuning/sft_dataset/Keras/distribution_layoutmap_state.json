@@ -1,0 +1,62 @@
+{
+  "repo": "Keras",
+  "instance_id": "distribution_layoutmap_state",
+  "question_kind": "program_state_prediction",
+  "attempt": 1,
+  "messages": [
+    {
+      "role": "system",
+      "content": "Solve repository QA in read-only mode with tool calls only.\nRules:\n1. Use list_dir/read_file tools only (get_repo_map is disabled).\n2. Prefer relative paths. Repo files are usually like src/...; instance files are usually files/....\n3. Minimize unnecessary reads and repeated failed paths.\n4. read_file has a hard per-call limit: at most 200 lines.\n5. When you are completely done using tools, reply with exactly DONE_WITH_FILE_READING.\n6. Do not combine the completion signal with the final JSON answer.\n7. After the follow-up prompt closes the tool phase, return exactly one JSON object matching template_answer keys and value types.\n8. Do not output markdown or explanations in the final answer."
+    },
+    {
+      "role": "user",
+      "content": "Repository root: /home/hamed/PycharmProjects/RepoBehave/fine-tuning/sft_dataset/repo_cache/Keras\nInstance directory: /home/hamed/PycharmProjects/RepoBehave/qa_instances/Keras/distribution_layoutmap_state\nQuestion kind: program_state_prediction\n\nQuestion:\nUse `keras/src/test/distribution/distribution_layoutmap_state_test.py`, class `DistributionLayoutMapStateQATest`, method `test_layoutmap_matching_keys_state_on_ambiguous_regex`. Setup: create `DeviceMesh(shape=(2,), axis_names=('batch',), devices=['cpu:0', 'cpu:1'])`; create `LayoutMap(device_mesh)`; insert two regex keys in this order: `'dense.*kernel' -> (None, 'batch')` and `'.*dense_1.*' -> ('batch', None)`; then query `layout_map['encoder/dense_1/kernel']` expecting ambiguity. In `keras/src/distribution/distribution_lib.py`, function `LayoutMap.__getitem__` (loop at lines 759-761 and branch check at line 762), what is the final value of local variable `matching_keys` immediately before the `if len(matching_keys) > 1` branch raises `ValueError`?\n\nTemplate answer (must match exactly):\n\"list[str]\"\n\nInstance file preview (you can read these and repository files with tools):\n- files/keras/src/test/__pycache__/parse_distribution_layoutmap_oracle.cpython-313.pyc\n- files/keras/src/test/distribution/distribution_layoutmap_state_test.py\n- files/keras/src/test/parse_distribution_layoutmap_oracle.py\n\nTask phase 1: use tools as needed, then reply with exactly DONE_WITH_FILE_READING.\nTask phase 2: after the follow-up closes tool use, return only the final JSON answer object."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_R7fP0KXnEEf57gawDZsxBAAB",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"files/keras/src/test/distribution/distribution_layoutmap_state_test.py\", \"start_line\": 1, \"end_line\": 220}"
+          }
+        },
+        {
+          "id": "call_Z44UQATCp7rwJjK5xAwQabCA",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"/testbed/keras/src/distribution/distribution_lib.py\", \"start_line\": 730, \"end_line\": 780}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_R7fP0KXnEEf57gawDZsxBAAB",
+      "name": "read_file",
+      "content": "{\"ok\": true, \"path\": \"files/keras/src/test/distribution/distribution_layoutmap_state_test.py\", \"start_line\": 1, \"end_line\": 21, \"total_lines\": 21, \"truncated\": false, \"content\": \"1:from keras.src import testing\\n2:from keras.src.distribution.distribution_lib import DeviceMesh\\n3:from keras.src.distribution.distribution_lib import LayoutMap\\n4:\\n5:\\n6:class DistributionLayoutMapStateQATest(testing.TestCase):\\n7:    def test_layoutmap_matching_keys_state_on_ambiguous_regex(self):\\n8:        device_mesh = DeviceMesh(\\n9:            shape=(2,),\\n10:            axis_names=(\\\"batch\\\",),\\n11:            devices=[\\\"cpu:0\\\", \\\"cpu:1\\\"],\\n12:        )\\n13:        layout_map = LayoutMap(device_mesh)\\n14:\\n15:        # Intentionally create two overlapping regex entries.\\n16:        layout_map[\\\"dense.*kernel\\\"] = (None, \\\"batch\\\")\\n17:        layout_map[\\\".*dense_1.*\\\"] = (\\\"batch\\\", None)\\n18:\\n19:        # Query path is designed to match both regex keys.\\n20:        with self.assertRaisesRegex(ValueError, \\\"matches multiple layout\\\"):\\n21:            _ = layout_map[\\\"encoder/dense_1/kernel\\\"]\"}"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_Z44UQATCp7rwJjK5xAwQabCA",
+      "name": "read_file",
+      "content": "{\"ok\": true, \"path\": \"src/distribution/distribution_lib.py\", \"start_line\": 730, \"end_line\": 780, \"total_lines\": 850, \"truncated\": false, \"content\": \"730:    layout_8 = layout_map['my_model/conv3d_1/bias']     # layout_8 == None\\n731:    ```\\n732:\\n733:    Args:\\n734:        device_mesh: `keras.distribution.DeviceMesh` instance.\\n735:    \\\"\\\"\\\"\\n736:\\n737:    def __init__(self, device_mesh):\\n738:        self._layout_map = collections.OrderedDict()\\n739:        self._device_mesh = device_mesh\\n740:\\n741:    def __getitem__(self, key):\\n742:        \\\"\\\"\\\"Retrieves the corresponding layout by the string key.\\n743:\\n744:        When there isn't an exact match, all the existing keys in the layout map\\n745:        will be treated as a regex and map against the input key again. When\\n746:        there are multiple matches for the regex, an `ValueError` will be\\n747:        raised. Returns `None` if there isn't any match found.\\n748:\\n749:        Args:\\n750:            key: String key to query a layout.\\n751:\\n752:        Returns:\\n753:            Corresponding layout based on the query.\\n754:        \\\"\\\"\\\"\\n755:        if key in self._layout_map:\\n756:            return self._layout_map[key]\\n757:\\n758:        matching_keys = []\\n759:        for k in self._layout_map:\\n760:            if re.search(k, key):\\n761:                matching_keys.append(k)\\n762:        if len(matching_keys) > 1:\\n763:            raise ValueError(\\n764:                f\\\"Path '{key}' matches multiple layout \\\"\\n765:                f\\\"specification keys: {matching_keys}. Please make \\\"\\n766:                \\\"sure each tensor/variable path only matches at most \\\"\\n767:                \\\"one layout specification key in the LayoutMap.\\\"\\n768:            )\\n769:        elif len(matching_keys) == 1:\\n770:            return self._layout_map[matching_keys[0]]\\n771:        return None\\n772:\\n773:    def __setitem__(self, key, layout):\\n774:        \\\"\\\"\\\"Insert TensorLayout to the LayoutMap.\\n775:\\n776:        Args:\\n777:            key: String key for the `TensorLayout`.\\n778:            layout: The `TensorLayout`. As a shortcut, tuple of string and None\\n779:                are also acceptable, and will be converted to `TensorLayout`.\\n780:        \\\"\\\"\\\"\"}"
+    },
+    {
+      "role": "assistant",
+      "content": "The test method sets up a `LayoutMap`, inserts two keys in order, then queries `layout_map[\"encoder/dense_1/kernel\"]` inside `assertRaisesRegex(ValueError, \"matches multiple layout\")`. From `LayoutMap.__getitem__`, the exact-match branch at line 755 does not apply unless the query string is literally a key in `_layout_map`; here the inserted keys are `\"dense.*kernel\"` and `\".*dense_1.*\"`, so the query is not an exact key.\n\nThe relevant logic is the loop:\n\n- initialize `matching_keys = []`\n- iterate `for k in self._layout_map`\n- if `re.search(k, key)`, append `k`\n\nBecause `_layout_map` is an `OrderedDict` created in `__init__`, iteration preserves insertion order. The test inserts `\"dense.*kernel\"` first and `\".*dense_1.*\"` second, so the loop checks them in that order.\n\nFor the query `\"encoder/dense_1/kernel\"`:\n- `re.search(\"dense.*kernel\", \"encoder/dense_1/kernel\")` matches, since the substring starting at `\"dense_1/kernel\"` fits `dense.*kernel`.\n- `re.search(\".*dense_1.*\", \"encoder/dense_1/kernel\")` also matches, since the whole string contains `\"dense_1\"`.\n\nSo both inserted regex keys are appended, in insertion order, before the branch at line 762 checks `len(matching_keys) > 1` and raises.\n\nDONE_WITH_FILE_READING\n[\"dense.*kernel\", \".*dense_1.*\"]"
+    },
+    {
+      "role": "user",
+      "content": "You already signaled DONE_WITH_FILE_READING. Tool phase is closed. Return ONLY the final JSON answer object matching the earlier template. Do not output markdown or explanations."
+    },
+    {
+      "role": "assistant",
+      "content": "[\"dense.*kernel\", \".*dense_1.*\"]"
+    }
+  ]
+}
