@@ -472,6 +472,154 @@ def print_failed_instances(stats: EvalStats, single_repo: Optional[str]) -> None
             print(f"- {repo}/{instance}: {reason}")
 
 
+def write_excel(
+    path: Path,
+    *,
+    scope_lines: List[str],
+    results: List[Tuple[EvalTarget, EvalStats]],
+    aggregate: EvalStats,
+) -> None:
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+        from openpyxl.utils import get_column_letter
+    except ImportError as exc:
+        raise SystemExit(
+            "openpyxl is required for --excel. Install with: pip install openpyxl"
+        ) from exc
+
+    bold = Font(bold=True)
+    wb = Workbook()
+
+    def autosize(ws, max_width: int = 60) -> None:
+        for col_cells in ws.columns:
+            length = 0
+            letter = get_column_letter(col_cells[0].column)
+            for cell in col_cells:
+                v = cell.value
+                if v is None:
+                    continue
+                length = max(length, len(str(v)))
+            ws.column_dimensions[letter].width = min(max(length + 2, 10), max_width)
+
+    # Summary
+    ws = wb.active
+    ws.title = "Summary"
+    row = 1
+    for line in scope_lines:
+        ws.cell(row=row, column=1, value=line).font = bold
+        row += 1
+    row += 1
+    summary_rows = [
+        ("total_instances", aggregate.total),
+        ("correct", aggregate.correct),
+        ("overall_accuracy_pct", round(pct(aggregate.correct, aggregate.total), 2)),
+        ("missing_oracles", aggregate.missing_oracle),
+        ("invalid_predictions", aggregate.invalid_pred),
+    ]
+    for label, value in summary_rows:
+        ws.cell(row=row, column=1, value=label).font = bold
+        ws.cell(row=row, column=2, value=value)
+        row += 1
+    autosize(ws)
+
+    # PerTarget
+    ws2 = wb.create_sheet("PerTarget")
+    headers = [
+        "tool", "vendor", "model", "repo",
+        "total", "correct", "accuracy_pct",
+        "missing_oracle", "invalid_pred",
+    ]
+    for col, h in enumerate(headers, start=1):
+        ws2.cell(row=1, column=col, value=h).font = bold
+    for i, (target, stats) in enumerate(sorted(results, key=lambda x: x[0].label()), start=2):
+        ws2.cell(row=i, column=1, value=target.tool)
+        ws2.cell(row=i, column=2, value=target.vendor or "")
+        ws2.cell(row=i, column=3, value=target.model)
+        ws2.cell(row=i, column=4, value=target.repo)
+        ws2.cell(row=i, column=5, value=stats.total)
+        ws2.cell(row=i, column=6, value=stats.correct)
+        ws2.cell(row=i, column=7, value=round(pct(stats.correct, stats.total), 2))
+        ws2.cell(row=i, column=8, value=stats.missing_oracle)
+        ws2.cell(row=i, column=9, value=stats.invalid_pred)
+    autosize(ws2)
+
+    # PerToolModel — averaged across all repos for each (tool, vendor, model)
+    ws_avg = wb.create_sheet("PerToolModel")
+    headers = [
+        "tool", "vendor", "model",
+        "repos", "total", "correct", "accuracy_pct",
+        "missing_oracle", "invalid_pred",
+    ]
+    for col, h in enumerate(headers, start=1):
+        ws_avg.cell(row=1, column=col, value=h).font = bold
+    grouped: Dict[Tuple[str, str, str], Dict[str, int]] = {}
+    for target, stats in results:
+        key = (target.tool, target.vendor or "", target.model)
+        g = grouped.setdefault(
+            key,
+            {"repos": 0, "total": 0, "correct": 0, "missing_oracle": 0, "invalid_pred": 0},
+        )
+        g["repos"] += 1
+        g["total"] += stats.total
+        g["correct"] += stats.correct
+        g["missing_oracle"] += stats.missing_oracle
+        g["invalid_pred"] += stats.invalid_pred
+    for i, (key, g) in enumerate(sorted(grouped.items()), start=2):
+        tool, vendor_name, model = key
+        ws_avg.cell(row=i, column=1, value=tool)
+        ws_avg.cell(row=i, column=2, value=vendor_name)
+        ws_avg.cell(row=i, column=3, value=model)
+        ws_avg.cell(row=i, column=4, value=g["repos"])
+        ws_avg.cell(row=i, column=5, value=g["total"])
+        ws_avg.cell(row=i, column=6, value=g["correct"])
+        ws_avg.cell(row=i, column=7, value=round(pct(g["correct"], g["total"]), 2))
+        ws_avg.cell(row=i, column=8, value=g["missing_oracle"])
+        ws_avg.cell(row=i, column=9, value=g["invalid_pred"])
+    autosize(ws_avg)
+
+    # PerKind (aggregate across the run)
+    ws3 = wb.create_sheet("PerKind")
+    headers = ["question_kind", "total", "correct", "accuracy_pct"]
+    for col, h in enumerate(headers, start=1):
+        ws3.cell(row=1, column=col, value=h).font = bold
+    for i, kind in enumerate(sorted(aggregate.per_kind_total.keys()), start=2):
+        k_total = aggregate.per_kind_total[kind]
+        k_correct = aggregate.per_kind_correct.get(kind, 0)
+        ws3.cell(row=i, column=1, value=kind)
+        ws3.cell(row=i, column=2, value=k_total)
+        ws3.cell(row=i, column=3, value=k_correct)
+        ws3.cell(row=i, column=4, value=round(pct(k_correct, k_total), 2))
+    autosize(ws3)
+
+    # PerTargetPerKind
+    ws5 = wb.create_sheet("PerTargetPerKind")
+    headers = [
+        "tool", "vendor", "model", "repo", "question_kind",
+        "total", "correct", "accuracy_pct",
+    ]
+    for col, h in enumerate(headers, start=1):
+        ws5.cell(row=1, column=col, value=h).font = bold
+    row = 2
+    for target, stats in sorted(results, key=lambda x: x[0].label()):
+        for kind in sorted(stats.per_kind_total.keys()):
+            k_total = stats.per_kind_total[kind]
+            k_correct = stats.per_kind_correct.get(kind, 0)
+            ws5.cell(row=row, column=1, value=target.tool)
+            ws5.cell(row=row, column=2, value=target.vendor or "")
+            ws5.cell(row=row, column=3, value=target.model)
+            ws5.cell(row=row, column=4, value=target.repo)
+            ws5.cell(row=row, column=5, value=kind)
+            ws5.cell(row=row, column=6, value=k_total)
+            ws5.cell(row=row, column=7, value=k_correct)
+            ws5.cell(row=row, column=8, value=round(pct(k_correct, k_total), 2))
+            row += 1
+    autosize(ws5)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(str(path))
+
+
 def print_target_accuracies(title: str, results: List[Tuple[EvalTarget, EvalStats]], repo_only: bool = False) -> None:
     print(f"\n{title}")
     if not results:
@@ -499,6 +647,13 @@ def main() -> None:
     parser.add_argument("--qa-root", default=str(REPO_ROOT / "qa_instances"))
     parser.add_argument("--eval-root", default=str(REPO_ROOT / "evaluations"))
     parser.add_argument("--float-tol", type=float, default=1e-6)
+    parser.add_argument(
+        "--excel",
+        nargs="?",
+        const="evaluation_results.xlsx",
+        default=None,
+        help="Write results to an Excel file. Pass a path to override the default 'evaluation_results.xlsx'.",
+    )
     args = parser.parse_args()
 
     qa_root = Path(args.qa_root).resolve()
@@ -507,6 +662,15 @@ def main() -> None:
 
     if args.all and any([args.tool, args.vendor, args.model, args.repo]):
         parser.error("--all cannot be combined with --tool/--vendor/--model/--repo.")
+
+    if args.excel:
+        try:
+            import openpyxl  # noqa: F401
+        except ImportError:
+            raise SystemExit(
+                "openpyxl is required for --excel. Install with: "
+                f"{Path(__import__('sys').executable).name} -m pip install openpyxl"
+            )
 
     if args.all:
         targets = discover_all_targets(eval_root)
@@ -547,6 +711,20 @@ def main() -> None:
             print("\nSkipped targets")
             for target, reason in sorted(skipped, key=lambda x: x[0].label()):
                 print(f"- {target.label()}: {reason}")
+
+        if args.excel:
+            excel_path = Path(args.excel).resolve()
+            write_excel(
+                excel_path,
+                scope_lines=[
+                    "scope: all",
+                    f"targets_evaluated: {len(results)}",
+                    f"targets_skipped: {len(skipped)}",
+                ],
+                results=results,
+                aggregate=aggregate,
+            )
+            print(f"\nExcel report written to: {excel_path}")
         return
 
     if not args.tool or not args.model:
@@ -602,6 +780,16 @@ def main() -> None:
             print("\nSkipped repos")
             for target, reason in sorted(skipped, key=lambda x: x[0].repo):
                 print(f"- {target.repo}: {reason}")
+
+        if args.excel:
+            excel_path = Path(args.excel).resolve()
+            write_excel(
+                excel_path,
+                scope_lines=summary_lines,
+                results=results,
+                aggregate=aggregate,
+            )
+            print(f"\nExcel report written to: {excel_path}")
         return
 
     target = EvalTarget(tool=args.tool, vendor=vendor, model=args.model, repo=repo_selector)
@@ -620,6 +808,16 @@ def main() -> None:
     print_summary(scope_lines=summary_lines, stats=stats)
     print_per_kind_accuracy(stats)
     print_failed_instances(stats, single_repo=repo_selector)
+
+    if args.excel:
+        excel_path = Path(args.excel).resolve()
+        write_excel(
+            excel_path,
+            scope_lines=summary_lines,
+            results=[(target, stats)],
+            aggregate=stats,
+        )
+        print(f"\nExcel report written to: {excel_path}")
 
 
 if __name__ == "__main__":

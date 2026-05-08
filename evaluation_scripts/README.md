@@ -1,28 +1,35 @@
+
+# Prerequisites
+
+- Docker installed and running
+- `jq` installed
+
 ## Evaluation Scripts
 
 All evaluation runners and evaluation helper scripts are documented here.
 
 Runner order in this doc:
-1. LLM + RepoMap host runner
-2. Cursor CLI in Docker
-3. Claude Code CLI in Docker
-4. SWE-Agent / mini-SWE-Agent in Docker
+1. LLM
+2. Cursor CLI
+3. Claude Code CLI
+4. SWE-Agent / mini-SWE-Agent
 
-## LLM + RepoMap Evaluation (Host-only, Read-only)
+# 1- LLM + RepoMap Evaluation
 
-Script: `evaluation_scripts/llm_eval/run_llm_repomap_eval_host.py`
-
-Compatibility wrapper (still available): `evaluation_scripts/run_llm_repomap_eval_host.py`
+Script: `evaluation_scripts/run_llm_repomap_eval_host.py`
 
 This flow is host-side and read-only:
 - Uses provider APIs (`openai`, `gemini`, `anthropic`, `fireworks`, `openrouter`, `vllm`)
 - Uses read-only tools: `get_repo_map`, `list_dir`, `read_file`
 
-Activate the project env first (root `environment.yml`, conda env name
-`Triad_env` — see the project `Readme.md` for the fine-tuning-only env):
+## For evaluation using local llm (vllm), you need to activate Triad_env (root `environment.yml`, conda env name `Triad_env` — see the project `Readme.md`):
 
 ```bash
 conda activate Triad_env
+```
+## For evaluation using other providers (including openai, gemeini, anthropic, fireworks, and openrouter) activate repo:
+```bash
+conda activate repo
 ```
 
 ### API keys
@@ -109,7 +116,7 @@ For a managed local vLLM lifecycle, use:
 - `evaluations/llm/<vendor>/<model>/<repo>/<instance>/answer.json`
 - `evaluations/llm/<vendor>/<model>/<repo>/<instance>/llm.log`
 
-## Cursor Evaluation (Docker)
+# 2- Cursor Evaluation
 
 Script: `evaluation_scripts/run_cursor_eval_in_docker.sh`
 
@@ -127,12 +134,9 @@ Set it:
 export CURSOR_API_KEY="your_cursor_key"
 ```
 
-### Prerequisites
+### Prerequisity
 
-- Docker installed and running
-- `jq` installed
-- `cursor-agent` installed on host (the script copies it into each container)
-- `Repositories.json` configured (repo -> image mapping)
+- `cursor-agent` installed on host (the script copies it into each container. Install from https://cursor.com/docs/cli/installation)
 
 ### Usage
 
@@ -162,10 +166,10 @@ Optional:
 ### Examples
 
 ```bash
-./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Sympy
-./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo all --num-instances 10
+./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Sympy --cursor-api-key "$CURSOR_API_KEY"
+./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo all --num-instances 10 --cursor-api-key "$CURSOR_API_KEY"
 ./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo Keras --cursor-api-key "$CURSOR_API_KEY"
-./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo all --resume
+./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5.3-codex-high --repo all --resume --cursor-api-key "$CURSOR_API_KEY"
 ```
 
 ### Find available models
@@ -188,7 +192,7 @@ List models:
 agent models
 ```
 
-## Claude Code Evaluation (Docker)
+# 3- Claude Code Evaluation
 
 Script: `evaluation_scripts/run_claude_code_eval_in_docker.sh`
 
@@ -205,13 +209,6 @@ Set it:
 ```bash
 export ANTHROPIC_API_KEY="your_anthropic_key"
 ```
-
-### Prerequisites
-
-- Docker installed and running
-- `jq` installed
-- `Repositories.json` configured (repo -> image mapping)
-- Internet access in container for auto-install (native installer: `curl -fsSL https://claude.ai/install.sh | bash`, npm fallback)
 
 ### Usage
 
@@ -260,17 +257,11 @@ curl https://api.anthropic.com/v1/models \
 | jq -r '.data[] | "\(.id)\t\(.display_name)"'
 ```
 
-## SWE-Agent / mini-SWE-Agent Evaluation (Docker)
+# 4- SWE-Agent / mini-SWE-Agent Evaluation
 
 Script: `evaluation_scripts/run_swe_agent_eval_in_docker.sh`
 
 This flow runs either SWE-Agent or mini-SWE-Agent inside each benchmark container.
-
-### Prerequisites
-
-- Docker installed and running
-- `jq` installed
-- `Repositories.json` configured (repo -> image mapping)
 
 ### API keys
 
@@ -333,7 +324,7 @@ Optional:
 ./evaluation_scripts/run_swe_agent_eval_in_docker.sh --agent mini-swe-agent --model openai/gpt-5.4 --repo all --resume
 ```
 
-## Scoring Against Oracle
+# Scoring Against Oracle
 
 Script: `evaluation_scripts/evaluate_qa_answers.py`
 
@@ -394,5 +385,5 @@ python3 evaluation_scripts/evaluate_qa_answers.py \
 ```
 
 Oracle details:
-- Oracle is read strictly from `qa_instances/<repo>/<instance>/oracle.json`.
+- Oracle is read from `qa_instances/<repo>/<instance>/oracle.json`.
 - `--qa-root` is used to discover/select instances (typically `qa_instances_eval`).
