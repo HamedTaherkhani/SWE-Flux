@@ -31,13 +31,10 @@ from .config import TrainingConfig
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Chat-template boundary tokens for Gemma 4.
-# If you change the base model family, update these to match its template.
-# ---------------------------------------------------------------------------
-RESPONSE_TEMPLATE = "<start_of_turn>model\n"
-INSTRUCTION_TEMPLATE = "<start_of_turn>user\n"
-END_TEMPLATE = "<end_of_turn>\n"
+# Chat-turn boundary token sequences are discovered at runtime by probing the
+# tokenizer's chat template — see _discover_chat_boundaries below. This avoids
+# the trap where a model's literal `<start_of_turn>` string tokenizes as
+# unrelated BPE pieces while the template emits a single special token id.
 
 
 # ---------------------------------------------------------------------------
@@ -143,23 +140,78 @@ class AssistantTurnDataCollator:
         }
 
 
+def _discover_chat_boundaries(tokenizer: Any) -> tuple[List[int], List[int]]:
+    """
+    Probe the model's chat template to find the actual token sub-sequences that
+    delimit an assistant turn.
+
+    Why this can't be hardcoded: Gemma 4 (and many other models) uses
+    chat-template special tokens that don't match their *literal string*
+    representation. For example, `<start_of_turn>` may render as `<|turn>` in
+    the template output and live as a single special token id (e.g. 105) — but
+    `tokenizer.encode("<start_of_turn>", ...)` falls through to the BPE encoder
+    and returns 9 unrelated tokens, none of which appear in actual training
+    data. The collator then masks every label to -100, gradients vanish, and
+    training silently no-ops.
+
+    Strategy: build a minimal probe conversation with a unique marker as the
+    assistant content, tokenize through the chat template, and extract the
+    tokens immediately surrounding the marker. Those are the real boundaries.
+
+    Returns (response_template, end_template) as token id lists.
+    """
+    marker = "RESPONSEBOUNDARYPROBE"
+    text = tokenizer.apply_chat_template(
+        [
+            {"role": "user", "content": "u"},
+            {"role": "assistant", "content": marker},
+        ],
+        tokenize=False,
+        add_generation_prompt=False,
+    )
+    ids: List[int] = tokenizer.encode(text, add_special_tokens=False)
+    marker_ids: List[int] = tokenizer.encode(marker, add_special_tokens=False)
+
+    # Locate the marker in the templated tokens.
+    marker_pos = -1
+    for i in range(len(ids) - len(marker_ids) + 1):
+        if ids[i : i + len(marker_ids)] == marker_ids:
+            marker_pos = i
+            break
+    if marker_pos < 0:
+        raise RuntimeError(
+            "Could not locate probe marker in chat-template output; cannot "
+            "discover assistant-turn boundaries automatically. Templated text: "
+            f"{text!r}"
+        )
+
+    # The 3 tokens before the marker are the assistant-turn opening
+    # (start_of_turn, "model", \n) for Gemma-style templates. We take 3 because
+    # that's the structural width of the opening; if a template uses a
+    # different width, this still yields a unique sub-sequence per turn.
+    response_template = ids[max(0, marker_pos - 3) : marker_pos]
+
+    # The 2 tokens after the marker are the turn-ending (end_of_turn, \n).
+    marker_end = marker_pos + len(marker_ids)
+    end_template = ids[marker_end : marker_end + 2]
+
+    if not response_template or not end_template:
+        raise RuntimeError(
+            "Discovered empty chat-turn boundaries. Templated text: "
+            f"{text!r}, ids: {ids}"
+        )
+    return response_template, end_template
+
+
 def _build_collator(tokenizer: Any, max_length: int) -> AssistantTurnDataCollator:
     """
     Build a completion-only data collator that masks non-assistant tokens.
 
-    We tokenize the boundary strings without special tokens so we get the
-    exact sub-sequence that appears inside a fully-formatted conversation,
-    avoiding off-by-one BOS/EOS issues.
+    Boundaries are discovered from the tokenizer's chat template at runtime
+    (see _discover_chat_boundaries) so this works regardless of which special
+    tokens the model uses.
     """
-    response_ids: List[int] = tokenizer.encode(
-        RESPONSE_TEMPLATE, add_special_tokens=False
-    )
-    instruction_ids: List[int] = tokenizer.encode(
-        INSTRUCTION_TEMPLATE, add_special_tokens=False
-    )
-    end_ids: List[int] = tokenizer.encode(
-        END_TEMPLATE, add_special_tokens=False
-    )
+    response_ids, end_ids = _discover_chat_boundaries(tokenizer)
 
     collator = AssistantTurnDataCollator(
         tokenizer=tokenizer,
@@ -168,8 +220,11 @@ def _build_collator(tokenizer: Any, max_length: int) -> AssistantTurnDataCollato
         max_length=max_length,
     )
     logger.info(
-        "AssistantTurnDataCollator — response_ids: %s  instruction_ids: %s  end_ids: %s",
-        response_ids, instruction_ids, end_ids,
+        "AssistantTurnDataCollator — response_ids: %s (decoded: %r)  end_ids: %s (decoded: %r)",
+        response_ids,
+        tokenizer.decode(response_ids),
+        end_ids,
+        tokenizer.decode(end_ids),
     )
     return collator
 
@@ -178,7 +233,7 @@ def _build_collator(tokenizer: Any, max_length: int) -> AssistantTurnDataCollato
 # Training arguments
 # ---------------------------------------------------------------------------
 
-def _build_sft_config(cfg: TrainingConfig) -> SFTConfig:
+def _build_sft_config(cfg: TrainingConfig, has_eval: bool = False) -> SFTConfig:
     kwargs = dict(
         # Output
         output_dir=str(cfg.output_dir),
@@ -217,6 +272,10 @@ def _build_sft_config(cfg: TrainingConfig) -> SFTConfig:
         save_total_limit=cfg.save_total_limit,
         load_best_model_at_end=False,  # no eval set — just save latest
 
+        # Evaluation — only enabled when caller passes an eval_dataset.
+        eval_strategy=("epoch" if has_eval else "no"),
+        per_device_eval_batch_size=cfg.per_device_batch_size,
+
         # Data loading
         dataloader_num_workers=4,
         dataloader_pin_memory=True,
@@ -236,6 +295,10 @@ def _build_sft_config(cfg: TrainingConfig) -> SFTConfig:
     )
     kwargs[length_param] = cfg.data.max_seq_length
 
+    # Older transformers used `evaluation_strategy`; newer ones use `eval_strategy`.
+    if "eval_strategy" not in sft_params and "evaluation_strategy" in sft_params:
+        kwargs["evaluation_strategy"] = kwargs.pop("eval_strategy")
+
     unsupported = sorted(set(kwargs) - set(sft_params))
     for key in unsupported:
         kwargs.pop(key)
@@ -254,15 +317,22 @@ def build_trainer(
     model: Any,
     tokenizer: Any,
     dataset: Dataset,
+    eval_dataset: Dataset | None = None,
 ) -> SFTTrainer:
-    """Build the SFTTrainer.  Caller is responsible for calling .train()."""
+    """Build the SFTTrainer.  Caller is responsible for calling .train().
+
+    If eval_dataset is provided, evaluation runs once per epoch and `eval_loss`
+    (plus token-accuracy/entropy) is appended to trainer_state.json's
+    log_history alongside training losses.
+    """
     collator = _build_collator(tokenizer, cfg.data.max_seq_length)
-    sft_cfg = _build_sft_config(cfg)
+    sft_cfg = _build_sft_config(cfg, has_eval=eval_dataset is not None)
 
     trainer = SFTTrainer(
         model=model,
         args=sft_cfg,
         train_dataset=dataset,
+        eval_dataset=eval_dataset,
         data_collator=collator,
         processing_class=tokenizer,
     )

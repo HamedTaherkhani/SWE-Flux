@@ -19,6 +19,29 @@ def _is_distributed() -> bool:
     """True when the process is launched under torchrun / accelerate launch."""
     return "LOCAL_RANK" in os.environ or "WORLD_SIZE" in os.environ
 
+
+def _prefer_cudnn_sdpa() -> None:
+    """
+    Enable all SDPA backends and let PyTorch pick the best one per call.
+
+    On this stack (torch + cuDNN + flash-attn versions on the training node) no
+    flash-style kernel supports head_dim=256 — flash, mem_efficient, and cuDNN
+    all reject. Only the math backend works, but it's O(L²) memory: feasible up
+    to ~16 k context, OOMs at 32 k. Keeping all backends enabled means PyTorch
+    will use whichever can run a given call (cuDNN/mem_eff for some shapes,
+    math as last resort).
+    """
+    if not torch.cuda.is_available():
+        return
+    try:
+        torch.backends.cuda.enable_flash_sdp(True)
+        torch.backends.cuda.enable_cudnn_sdp(True)
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+        torch.backends.cuda.enable_math_sdp(True)
+        logger.info("SDPA backends: all enabled (auto-dispatch)")
+    except AttributeError as exc:
+        logger.warning("Could not configure SDPA backends: %s", exc)
+
 _DTYPE_MAP: dict[str, torch.dtype] = {
     "bfloat16": torch.bfloat16,
     "float16":  torch.float16,
@@ -157,7 +180,11 @@ def load_base_model(
     if quant.load_in_4bit:
         model_kwargs["quantization_config"] = _build_bnb_config(quant)
 
-    if _flash_attention_compatible(model_path):
+    forced_impl = os.environ.get("FORCE_ATTN_IMPL", "").strip().lower()
+    if forced_impl in ("sdpa", "flash_attention_2", "eager"):
+        model_kwargs["attn_implementation"] = forced_impl
+        logger.info("Using %s attention (forced via FORCE_ATTN_IMPL)", forced_impl)
+    elif _flash_attention_compatible(model_path):
         model_kwargs["attn_implementation"] = "flash_attention_2"
         logger.info("Using Flash Attention 2")
     else:
@@ -167,19 +194,34 @@ def load_base_model(
         else:
             logger.info("Flash Attention 2 not available — using sdpa attention")
 
+    if model_kwargs["attn_implementation"] == "sdpa":
+        _prefer_cudnn_sdpa()
+
     logger.info("Loading base model from %s ...", model_path)
     model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
 
     if quant.load_in_4bit:
-        # prepare_model_for_kbit_training casts norms/embeddings to fp32 and
-        # wires up gradient checkpointing. Under FSDP we let SFTConfig own
-        # gradient checkpointing (single source of truth, non-reentrant), so
-        # we skip the wiring here to avoid double-wrapping the forward.
-        model = prepare_model_for_kbit_training(
-            model,
-            use_gradient_checkpointing=not _is_distributed(),
-            gradient_checkpointing_kwargs={"use_reentrant": False},
-        )
+        if _is_distributed():
+            # Under FSDP we deliberately skip prepare_model_for_kbit_training:
+            # its fp32 cast of norms/lm_head leaves mixed dtypes inside each
+            # decoder layer, which FSDP-1's FlatParam validator rejects with
+            # "Must flatten tensors with uniform dtype". On bf16 H100 the
+            # numerical-stability gain from fp32 norms is negligible (Answer.AI's
+            # FSDP-QLoRA recipe drops it for the same reason).
+            #
+            # We still need enable_input_require_grads so gradient checkpointing
+            # propagates through the frozen embedding to the LoRA parameters.
+            # get_peft_model handles freezing the base model.
+            if hasattr(model, "enable_input_require_grads"):
+                model.enable_input_require_grads()
+        else:
+            # Single-GPU path keeps the upstream behavior: fp32 norms and
+            # built-in gradient checkpointing wiring.
+            model = prepare_model_for_kbit_training(
+                model,
+                use_gradient_checkpointing=True,
+                gradient_checkpointing_kwargs={"use_reentrant": False},
+            )
 
     return model
 

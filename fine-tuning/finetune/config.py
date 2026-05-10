@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 # ---------------------------------------------------------------------------
 # Default LoRA target modules for Gemma / Llama-style architectures.
@@ -16,18 +16,23 @@ _DEFAULT_TARGET_MODULES: List[str] = [
     "gate_proj", "up_proj", "down_proj",
 ]
 
-# Gemma 4 4B wraps projection layers in Gemma4ClippableLinear.  PEFT cannot
-# attach LoRA to that wrapper directly, so target the supported inner linear.
-GEMMA4_4B_TARGET_MODULES: List[str] = [
-    "q_proj.linear", "k_proj.linear", "v_proj.linear", "o_proj.linear",
-    "gate_proj.linear", "up_proj.linear", "down_proj.linear",
-]
+# Gemma 4 4B is multimodal: only the *vision/audio* towers use
+# Gemma4ClippableLinear (a wrapper whose .linear inner module PEFT can target).
+# The language model's projections are plain bnb Linear4bit. The previous
+# suffix list "q_proj.linear" matched ONLY the vision tower — LoRA attached
+# there never participates in text-only forward, so gradients are always None
+# and training silently no-ops. Use a regex anchored to language_model.* so
+# LoRA grafts onto the text decoder's projections instead.
+GEMMA4_4B_TARGET_MODULES: str = (
+    r".*language_model\..*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"
+)
 
 
-def _default_target_modules_for_model(model_path: str) -> List[str]:
+def _default_target_modules_for_model(model_path: str):
+    """Return target_modules for PEFT — either a list (suffix match) or a regex string."""
     model_name = Path(model_path).name.lower()
     if model_name == "gemma4-4b":
-        return list(GEMMA4_4B_TARGET_MODULES)
+        return GEMMA4_4B_TARGET_MODULES  # regex string, must NOT be wrapped in list()
     return list(_DEFAULT_TARGET_MODULES)
 
 
@@ -40,7 +45,12 @@ class LoraConfig:
     r: int = 16
     alpha: int = 32
     dropout: float = 0.05
-    target_modules: List[str] = field(default_factory=lambda: list(_DEFAULT_TARGET_MODULES))
+    # Either a list of suffix strings (matched via str.endswith) or a single
+    # regex string. Gemma 4 uses the regex form to scope LoRA to the language
+    # model only and skip the multimodal vision/audio towers.
+    target_modules: Union[List[str], str] = field(
+        default_factory=lambda: list(_DEFAULT_TARGET_MODULES)
+    )
     bias: str = "none"
 
 

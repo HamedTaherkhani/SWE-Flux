@@ -1,322 +1,233 @@
 # RepoBehave Fine-Tuning
 
-This directory contains everything needed to (1) generate an SFT dataset from
-repository QA instances and (2) fine-tune a small language model on that
-dataset using QLoRA so it learns to answer code-behavior questions via
-agentic tool use.
+Generate an SFT dataset from RepoBehave QA instances, fine-tune a small LM with
+QLoRA, and evaluate it via vLLM. Single-model training (`train.py`) and
+leave-one-repo-out (`train_loro.py`) are both supported.
 
 ---
 
-## 1 · Environment setup (conda)
+## Environment
 
-Fine-tuning uses **`fine-tuning/environment.yml`** only (env name **`RepoBehave_finetune`**).
-Dataset generation that talks to OpenAI can use this same env or the root repo env.
-Everything else—evaluation, vLLM, general tooling—uses the root **`environment.yml`**
-(env name **`Triad_env`**).
-
-### Create the fine-tuning environment
-
-From the repository root:
+Use `fine-tuning/environment.yml` (env name `RepoBehave_finetune`). The root
+`environment.yml` (`Triad_env`) is for evaluation and vLLM serving.
 
 ```bash
-# Recommended: libmamba solver (faster dependency resolution)
 conda env create --solver libmamba -f fine-tuning/environment.yml
 conda activate RepoBehave_finetune
 ```
 
-### Key packages (see `fine-tuning/environment.yml` for pins)
+Then install Flash Attention (must match the cluster CUDA / torch ABI):
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `bitsandbytes` | ≥ 0.44 | 4-bit NF4 quantization |
-| `peft` | ≥ 0.15 | LoRA adapters |
-| `trl` | (see env file) | SFT training (`SFTTrainer` in current TRL) |
-| `accelerate` | ≥ 1.3 | Device placement + mixed precision |
-| `wandb` | ≥ 0.19 | Experiment tracking (optional) |
+```bash
+pip install "flash-attn>=2.7" --no-build-isolation
+```
 
-> **bitsandbytes on a cluster GPU node:**  If the generic `bitsandbytes` wheel
-> does not detect your CUDA version, install the CUDA-specific build:
-> ```bash
-> pip install bitsandbytes \
->     --index-url https://huggingface.github.io/bitsandbytes-cuda-versions/
-> ```
+Verify GPU stack:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
 
 ---
 
-### Make sure Cuda and Pytorch available:
-
-```bash
-python - <<'PY'
-import torch
-print("torch:", torch.__version__)
-print("cuda available:", torch.cuda.is_available())
-print("torch cuda:", torch.version.cuda)
-PY
-```
-### Then install falsh-attn:
-
-```bash
-pip install "flash-attn>=2.7.0"
-```
-### If that doesn't work try this:
-```bash
-pip install "flash-attn>=2.7.0" --no-build-isolation
-```
-
-## Directory layout
+## Layout
 
 ```
 fine-tuning/
-├── README.md                     ← this file
-├── create_sft_dataset.py         ← dataset generation script
-├── sft_dataset/                  ← generated training data (git-ignored heavy files)
-│   ├── Sympy/
-│   │   ├── core_expand_mul_indirect_output.json
-│   │   └── …
-│   ├── faker_qa/
-│   └── repo_cache/               ← Docker repo snapshots (local cache, not committed)
-├── train.py                      ← QLoRA training entry point
-├── merge.py                      ← standalone adapter-merge script
-└── finetune/                     ← Python package
-    ├── __init__.py
-    ├── config.py                 ← dataclasses + CLI argument parsers
-    ├── data.py                   ← dataset loading and chat-template formatting
-    ├── model.py                  ← quantized model + LoRA setup
-    ├── trainer.py                ← SFTTrainer construction with loss masking
-    └── merge.py                  ← merge LoRA adapter into base model for vLLM
+├── README.md
+├── environment.yml
+├── create_sft_dataset.py           generate trajectories from QA instances
+├── train.py                        single-model QLoRA training
+├── train_loro.py                   leave-one-repo-out: 9 models, one per fold
+├── evaluate_loro.sh                run vLLM evaluation across LORO folds
+├── merge.py                        merge adapter into base for vLLM
+├── fsdp_qlora.yaml                 accelerate FSDP config (multi-GPU, see note below)
+├── sft_dataset/                    generated training data
+└── finetune/                       package: config / data / model / trainer / merge
 ```
 
 ---
 
-## 2 · Dataset generation (`create_sft_dataset.py`)
+## 1 · Generate the SFT dataset
 
-### What it does
-
-For each QA instance in `qa_instances/<repo>/` the script:
-
-1. Loads `oracle.json` (ground-truth answer) and `trace.log` (runtime execution trace).
-2. Spins up a **teacher LLM** (default `gpt-5.4`) that privately knows the oracle
-   answer and execution trace in its system prompt only.
-3. Runs an **agentic loop** where the teacher uses `read_file` and `list_dir` to
-   read source code and writes code-based reasoning (never quoting the trace).
-4. Saves the conversation using an **oracle-free student system prompt** that
-   matches the evaluation format exactly — so the saved training data is
-   indistinguishable from evaluation trajectories.
-
-The saved JSON has the schema:
+For each `qa_instances/<repo>/<instance>` a teacher LLM (default `gpt-5.4`)
+uses `read_file` and `list_dir` to derive the answer from source code, with the
+oracle answer kept in the teacher's system prompt only. The saved JSON has the
+schema:
 
 ```json
-{
-  "repo": "Sympy",
-  "instance_id": "core_expand_mul_indirect_output",
-  "question_kind": "program_state_prediction",
-  "attempt": 1,
-  "messages": [ … ]   // OpenAI-format multi-turn conversation
-}
+{ "repo": "Sympy", "instance_id": "...", "messages": [ ... ] }
 ```
 
-Each message follows the OpenAI API format:
-- `system` / `user` / `assistant` roles
-- `tool_calls` list in assistant messages (when calling a tool)
-- `role: "tool"` messages with `tool_call_id`, `name`, `content` (tool results)
+The student system prompt and tool set match what vLLM sees at evaluation
+time, so training and inference distributions stay identical.
 
-### Prerequisites
-
-- Docker daemon running (to pull and snapshot repo images)
-- An OpenAI API key in `.env`:  `openai_api_key=sk-proj-…`
-
-### Commands
+Requirements: Docker daemon running, `openai_api_key=...` in `.env`.
 
 ```bash
-# Generate for all repos
-python fine-tuning/create_sft_dataset.py
-
-# Generate for specific repos
-python fine-tuning/create_sft_dataset.py --repo Sympy faker_qa
-
-# Generate specific instances within one repo
-python fine-tuning/create_sft_dataset.py \
-    --repo Sympy \
-    --instances core_expand_mul_indirect_output
-
-# Use a different model
-python fine-tuning/create_sft_dataset.py --model gpt-4o --repo Sympy
-
-# Force re-copy repo from Docker (bypasses local cache)
-python fine-tuning/create_sft_dataset.py --repo Sympy --force-copy
-
-# Parallel workers
-python fine-tuning/create_sft_dataset.py --workers 8
+python fine-tuning/create_sft_dataset.py                              # all repos
+python fine-tuning/create_sft_dataset.py --repo Sympy faker_qa        # subset
+python fine-tuning/create_sft_dataset.py --workers 8                  # parallel
 ```
-
-### Key design decisions
-
-| Decision | Reason |
-|----------|--------|
-| Oracle + trace in teacher system prompt only | Training data is oracle-free, matching evaluation |
-| Trace never cited in assistant text | Model learns code reasoning, not trace lookup |
-| `read_file` + `list_dir` only (no repo map) | Matches the evaluation tool set |
-| Two attempts per instance; discard if both wrong | Ensures training data contains correct answers |
 
 ---
 
-## 3 · QLoRA fine-tuning (`train.py`)
-
-### Method: QLoRA
-
-- **4-bit NF4 quantization** (bitsandbytes) compresses the frozen base model to
-  ~2 GB VRAM for a 4 B parameter model.
-- **LoRA adapters** (rank 16 by default) are applied to all linear projections
-  in attention and MLP layers (~50 M trainable parameters).
-- **Gradient checkpointing** recomputes activations on the backward pass to
-  keep peak memory under control with long sequences.
-- **Paged AdamW 8-bit** uses CPU offloading for optimizer states.
-
-### Chat-template alignment
-
-Training conversations are formatted with `tokenizer.apply_chat_template(
-messages, tools=TOOLS)`.  This produces the **same token sequence** that vLLM
-generates when it receives an API request with the same tools — so the model
-sees exactly its inference distribution during training.
-
-### Loss masking
-
-`DataCollatorForCompletionOnlyLM` masks system prompts, user turns, and tool
-responses, computing loss **only on assistant (model) turns**.  This includes:
-
-- Intermediate exploration messages (explaining which code was read and why)
-- The final JSON answer
-
-### Hardware requirements
-
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| GPU VRAM  | 24 GB (batch=1, seq=4096) | 80 GB A100 (batch=1, seq=8192) |
-| RAM       | 32 GB  | 64 GB |
-| Storage   | 20 GB for base model + adapters | 100 GB if merging |
-
-### Commands
+## 2 · Train one model
 
 ```bash
-# Basic — train on all repos, save adapter
-python fine-tuning/train.py \
-    --model /home/hamedth/projects/.../gemma4-4b \
-    --output-dir /scratch/runs/gemma4-repobehave
-
-# Specific repos
-python fine-tuning/train.py \
-    --model /home/hamedth/projects/.../gemma4-4b \
-    --output-dir /scratch/runs/gemma4-repobehave \
-    --repos Sympy faker_qa matplotlib_qa pydata_xarray
-
-# Higher LoRA rank for better capacity
-python fine-tuning/train.py \
-    --model /home/hamedth/projects/.../gemma4-4b \
-    --output-dir /scratch/runs/gemma4-r64 \
-    --lora-r 64 --lora-alpha 128
-
-# Train and immediately merge for vLLM
-python fine-tuning/train.py \
-    --model /home/hamedth/projects/.../gemma4-4b \
-    --output-dir /scratch/runs/gemma4-repobehave \
-    --merge-after-training \
-    --merged-output-dir /scratch/runs/gemma4-repobehave-merged
-
-# Full help
-python fine-tuning/train.py --help
+FORCE_ATTN_IMPL=sdpa CUDA_VISIBLE_DEVICES=0 python fine-tuning/train.py \
+  --model /path/to/gemma4-4b \
+  --output-dir /scratch/runs/gemma4-r64 \
+  --batch-size 1 --grad-accum 32 \
+  --max-seq-length 8192 \
+  --epochs 2 --logging-steps 1
 ```
 
-### Key hyperparameters
+Useful flags:
 
 | Flag | Default | Notes |
-|------|---------|-------|
-| `--lora-r` | 16 | Rank; 16 is good for ~400 examples, 64 for larger datasets |
-| `--lora-alpha` | 32 | Scaling = alpha / r; keep ratio = 2 |
-| `--epochs` | 2 | 1–3 epochs typical for SFT |
-| `--batch-size` | 1 | Per device; increase only if VRAM allows |
-| `--grad-accum` | 32 | Effective batch = batch-size × grad-accum |
-| `--lr` | 2e-4 | Standard QLoRA learning rate |
-| `--max-seq-length` | 16384 | Tool-call conversations are long; truncation at this length |
-| `--optim` | `paged_adamw_8bit` | Required for QLoRA memory efficiency |
+|---|---|---|
+| `--lora-r` / `--lora-alpha` | 16 / 32 | keep ratio 2 |
+| `--max-seq-length` | 16384 | **For Gemma 4 4B on this stack, use 8192 or 12288.** See "Known footguns". |
+| `--repos` | all | restrict to a subset |
+| `--merge-after-training` | off | also write a bf16 merged model for vLLM |
 
-### Output layout after training
+After training, `<output-dir>/` contains `adapter_config.json` +
+`adapter_model.safetensors`. With `--merge-after-training`, a full bf16 model
+is written to `<output-dir>-merged/`.
+
+---
+
+## 3 · Leave-one-repo-out (LORO)
+
+Trains 9 models (one per repo), each on the other 8, evaluating per-epoch on
+the held-out repo.
+
+```bash
+FORCE_ATTN_IMPL=sdpa CUDA_VISIBLE_DEVICES=0 python fine-tuning/train_loro.py \
+  --model /path/to/gemma4-4b \
+  --output-root /scratch/loro \
+  --batch-size 1 --grad-accum 32 \
+  --max-seq-length 8192 \
+  --epochs 2 --logging-steps 1 \
+  --merge-after-training
+```
+
+Smoke test a single fold first: `--only-repo Sympy`. Resume after interruption:
+`--skip-existing`.
+
+Output per fold:
 
 ```
-<output-dir>/
-├── adapter_config.json         ← LoRA hyperparameters
-├── adapter_model.safetensors   ← trained ΔW weights
-├── tokenizer_config.json
-├── tokenizer.model
-└── checkpoint-<N>/             ← intermediate checkpoints
+/scratch/loro/loro-<repo>/         adapter + tokenizer + metrics.json
+/scratch/loro/loro-<repo>-merged/  bf16 standalone model for vLLM
+/scratch/loro/loro_summary.json    rolling summary across folds
+```
+
+`metrics.json` contains the full `trainer_state.log_history` — train loss every
+step, eval_loss per epoch, plus token-accuracy / entropy / grad_norm.
+
+---
+
+## 4 · Evaluation (vLLM)
+
+Single trained model: start vLLM, then call the existing eval driver.
+
+```bash
+export VLLM_MODEL=/scratch/runs/gemma4-r64-merged
+export VLLM_ALIAS=gemma4-r64
+./evaluation_scripts/llm_eval/start_vllm.sh start
+
+python evaluation_scripts/llm_eval/run_llm_repomap_eval_host.py \
+  --provider vllm --model $VLLM_ALIAS \
+  --repo Sympy --repo-map-mode none
+```
+
+LORO (all 9 folds): each fold is served, evaluated on its own held-out repo,
+then torn down. Outputs land under `fine-tuning/evaluations/`.
+
+```bash
+LORO_RUNS_ROOT=/scratch/loro fine-tuning/evaluate_loro.sh
+
+# Re-run one fold
+FOLDS=Sympy LORO_RUNS_ROOT=/scratch/loro fine-tuning/evaluate_loro.sh
+```
+
+Output structure:
+
+```
+fine-tuning/evaluations/llm/vllm/<alias>/<repo>/<instance>/{answer,traj}.json
 ```
 
 ---
 
-## 4 · Merging adapters for vLLM (`merge.py`)
-
-vLLM loads a standard HuggingFace model directory.  Before serving the
-fine-tuned model you must merge the LoRA adapter back into the base weights.
+## 5 · Merging an adapter (standalone)
 
 ```bash
 python fine-tuning/merge.py \
-    --adapter-path /scratch/runs/gemma4-repobehave \
-    --base-model   /home/hamedth/projects/.../gemma4-4b \
-    --output-dir   /scratch/runs/gemma4-repobehave-merged
+  --adapter-path /scratch/runs/gemma4-r64 \
+  --base-model   /path/to/gemma4-4b \
+  --output-dir   /scratch/runs/gemma4-r64-merged
 ```
 
-The merge runs in `bfloat16` by default.  No GPU is needed (but it is faster
-with one).  The output directory is a normal HuggingFace model directory.
+Runs in bf16, single GPU; no training needed.
 
 ---
 
-## 5 · Serving and evaluating the fine-tuned model
+## Known footguns (Gemma 4 4B specifically)
 
-### Start vLLM
+1. **Some layers have `head_dim=512`.** Gemma 4 4B alternates head_dim 256 /
+   512 across decoder layers. Flash Attention 2 (any version through 2.8.x)
+   caps at `head_dim <= 256`, so FA2 crashes on the 512 layers. Same for
+   PyTorch SDPA's flash / mem_efficient / cuDNN backends. **Use
+   `FORCE_ATTN_IMPL=sdpa`** — SDPA falls through to the math kernel for those
+   layers. At L=8192 this fits; at L=16384 you'll OOM during backward; L=32768
+   is unreachable on the current stack.
 
-```bash
-export VLLM_MODEL=/scratch/runs/gemma4-repobehave-merged
-export VLLM_ALIAS=gemma4-repobehave
-./evaluation_scripts/llm_eval/start_vllm.sh start
-```
+2. **LoRA target modules must be a regex scoped to `language_model.*`.** Gemma
+   4 is multimodal; its vision tower wraps projections in
+   `Gemma4ClippableLinear` while the language model has plain `Linear4bit`.
+   The previous suffix-match `q_proj.linear` matched only the vision tower —
+   LoRA was attached there and never participated in text-only forward,
+   producing flat loss and zero grad_norm. The default for Gemma 4 4B is now:
 
-The existing `start_vllm.sh` already sets `VLLM_TOOL_CALL_PARSER=gemma4` and
-`VLLM_ENABLE_AUTO_TOOL_CHOICE=1`, so the merged model will handle tool calls
-correctly out of the box.
+   ```
+   r".*language_model\..*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"
+   ```
 
-### Run evaluation
+   See [`finetune/config.py`](finetune/config.py).
 
-```bash
-python evaluation_scripts/llm_eval/run_llm_repomap_eval_host.py \
-    --provider vllm \
-    --model gemma4-repobehave \
-    --repo-map-mode none \
-    --repo Sympy
-```
+3. **Chat-turn boundaries are discovered at runtime.** Literal `<start_of_turn>`
+   does not exist in Gemma 4's vocab as a single token — the chat template
+   emits special tokens `105` (`<|turn>`) and `106` (`<turn|>`). The collator
+   probes the tokenizer at startup to find the real boundary IDs. See
+   `_discover_chat_boundaries` in [`finetune/trainer.py`](finetune/trainer.py).
 
-This is identical to how the base model is evaluated, making results directly
-comparable.
+4. **Multi-GPU FSDP-QLoRA does not work on this stack** (accelerate 1.x + bnb +
+   PEFT + paged_adamw_8bit silently zero-grads, plus the sharded save doesn't
+   produce PEFT-format adapter files). `fsdp_qlora.yaml` is left in the repo
+   for reference, but single-GPU is the working path until DeepSpeed ZeRO-3 or
+   FSDP-2 + bnb compatibility lands.
 
 ---
 
-## 6 · Typical SLURM job script
+## SLURM example
 
 ```bash
 #!/usr/bin/env bash
-#SBATCH --job-name=gemma4-qlora
-#SBATCH --gres=gpu:a100:1
+#SBATCH --job-name=gemma4-loro
+#SBATCH --gres=gpu:h100:1
 #SBATCH --mem=80G
 #SBATCH --cpus-per-task=8
-#SBATCH --time=12:00:00
+#SBATCH --time=06:00:00
 #SBATCH --output=logs/%j.out
 
 module load StdEnv/2023
 conda activate RepoBehave_finetune
 
-python fine-tuning/train.py \
-    --model /home/hamedth/projects/def-hemmati-ac/hamedth/hugging_face/gemma4-4b \
-    --output-dir "$SCRATCH/runs/gemma4-repobehave-$SLURM_JOB_ID" \
-    --repos Sympy faker_qa matplotlib_qa pydata_xarray yt_dlp \
-    --lora-r 16 \
-    --epochs 2 \
-    --merge-after-training
+FORCE_ATTN_IMPL=sdpa CUDA_VISIBLE_DEVICES=0 python fine-tuning/train_loro.py \
+  --model /home/hamedth/projects/def-hemmati-ac/hamedth/hugging_face/gemma4-4b \
+  --output-root "$SCRATCH/loro-$SLURM_JOB_ID" \
+  --max-seq-length 8192 --epochs 2 \
+  --merge-after-training
 ```
