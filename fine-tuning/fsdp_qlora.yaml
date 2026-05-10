@@ -1,0 +1,75 @@
+# Accelerate FSDP config for QLoRA fine-tuning of Gemma 4 4B on 2× H100.
+#
+# Why each setting matters
+# ────────────────────────
+# - distributed_type: FSDP             — shard params/grads/opt-state across ranks
+#   (DDP would replicate the full model on each GPU and not solve the OOM).
+# - mixed_precision: bf16              — H100 native; matches bnb_4bit_compute_dtype.
+# - fsdp_sharding_strategy: FULL_SHARD — ZeRO-3 equivalent: shard params + grads + opt.
+# - fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
+#     fsdp_transformer_layer_cls_to_wrap: Gemma4DecoderLayer,Gemma3DecoderLayer
+#                                       — wrap each decoder block as its own FSDP unit.
+#                                         (Both class names listed so this config works
+#                                          if transformers ships Gemma 4 under either name.)
+# - fsdp_use_orig_params: true         — REQUIRED for PEFT/LoRA: keeps LoRA params
+#                                         addressable as separate parameters so PEFT
+#                                         can train them while the base stays frozen.
+# - fsdp_cpu_ram_efficient_loading: true
+#                                       — only rank 0 loads weights from disk; other
+#                                         ranks materialize empty tensors and receive
+#                                         shards via broadcast. Avoids 2× host RAM spikes
+#                                         when loading the 4-bit base on both ranks.
+# - fsdp_sync_module_states: true      — broadcast rank-0 weights to all ranks at init
+#                                         (pairs with cpu_ram_efficient_loading).
+# - fsdp_offload_params: false         — keep params on GPU. Flip to true ONLY if you
+#                                         push max_seq_length past ~24 k and OOM.
+# - fsdp_state_dict_type: SHARDED_STATE_DICT
+#                                       — fastest checkpointing; Trainer handles reshard
+#                                         on save. Switch to FULL_STATE_DICT only if you
+#                                         need a single-file checkpoint for export.
+# - fsdp_forward_prefetch: true / fsdp_backward_prefetch: BACKWARD_PRE
+#                                       — overlap all-gather with compute.
+# - num_processes: 2                   — one process per H100. If you scale to 4/8 GPUs
+#                                         later, just bump this.
+
+compute_environment: LOCAL_MACHINE
+distributed_type: FSDP
+mixed_precision: bf16
+
+num_machines: 1
+num_processes: 2
+machine_rank: 0
+main_training_function: main
+
+# Use all 2 GPUs visible to the launcher. Override at the command line with
+# CUDA_VISIBLE_DEVICES if your node has more than 2 H100s and you only want 2.
+gpu_ids: all
+
+fsdp_config:
+  fsdp_version: 2
+  fsdp_sharding_strategy: FULL_SHARD
+  fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
+  fsdp_transformer_layer_cls_to_wrap: Gemma4DecoderLayer,Gemma3DecoderLayer
+  fsdp_use_orig_params: true
+  fsdp_cpu_ram_efficient_loading: true
+  fsdp_sync_module_states: true
+  fsdp_offload_params: false
+  fsdp_state_dict_type: SHARDED_STATE_DICT
+  fsdp_forward_prefetch: true
+  fsdp_backward_prefetch: BACKWARD_PRE
+  fsdp_activation_checkpointing: false   # SFTConfig handles gradient checkpointing
+  fsdp_reshard_after_forward: true
+
+# No DeepSpeed, no Megatron — pure FSDP.
+deepspeed_config: {}
+megatron_lm_config: {}
+
+# rdzv settings (unused on a single node but accelerate requires the keys to exist).
+rdzv_backend: static
+same_network: true
+
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+debug: false

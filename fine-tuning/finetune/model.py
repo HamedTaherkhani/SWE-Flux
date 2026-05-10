@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Tuple
 
 import torch
@@ -12,6 +13,11 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, BitsAn
 from .config import LoraConfig, QuantizationConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _is_distributed() -> bool:
+    """True when the process is launched under torchrun / accelerate launch."""
+    return "LOCAL_RANK" in os.environ or "WORLD_SIZE" in os.environ
 
 _DTYPE_MAP: dict[str, torch.dtype] = {
     "bfloat16": torch.bfloat16,
@@ -50,12 +56,19 @@ def _build_bnb_config(quant: QuantizationConfig) -> BitsAndBytesConfig:
     double_quant (nested quantization) reduces memory usage by ~0.4 bits/param
     at the cost of a small increase in quantization error — a good trade-off
     for fine-tuning tasks.
+
+    bnb_4bit_quant_storage matches the compute dtype so that FSDP can shard
+    the flat parameter (FSDP requires uniform storage dtype across the wrapped
+    unit). Setting this is the single load-bearing knob that makes 4-bit
+    QLoRA shardable under FSDP-2.
     """
+    compute_dtype = _DTYPE_MAP[quant.compute_dtype]
     return BitsAndBytesConfig(
         load_in_4bit=quant.load_in_4bit,
         bnb_4bit_quant_type=quant.quant_type,
-        bnb_4bit_compute_dtype=_DTYPE_MAP[quant.compute_dtype],
+        bnb_4bit_compute_dtype=compute_dtype,
         bnb_4bit_use_double_quant=quant.double_quant,
+        bnb_4bit_quant_storage=compute_dtype,
     )
 
 
@@ -129,9 +142,17 @@ def load_base_model(
 
     model_kwargs: dict[str, Any] = {
         "trust_remote_code": True,
-        "device_map": "auto",
         "torch_dtype": compute_dtype,
     }
+
+    if _is_distributed():
+        # Under FSDP each rank must materialize the model on its own GPU; FSDP
+        # then shards across ranks. `device_map="auto"` would compete with FSDP
+        # for placement and break sharding.
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        model_kwargs["device_map"] = {"": local_rank}
+    else:
+        model_kwargs["device_map"] = "auto"
 
     if quant.load_in_4bit:
         model_kwargs["quantization_config"] = _build_bnb_config(quant)
@@ -150,11 +171,13 @@ def load_base_model(
     model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
 
     if quant.load_in_4bit:
-        # Wraps the model so that bitsandbytes 4-bit layers work correctly
-        # with gradient checkpointing (which is crucial for memory efficiency).
+        # prepare_model_for_kbit_training casts norms/embeddings to fp32 and
+        # wires up gradient checkpointing. Under FSDP we let SFTConfig own
+        # gradient checkpointing (single source of truth, non-reentrant), so
+        # we skip the wiring here to avoid double-wrapping the forward.
         model = prepare_model_for_kbit_training(
             model,
-            use_gradient_checkpointing=True,
+            use_gradient_checkpointing=not _is_distributed(),
             gradient_checkpointing_kwargs={"use_reentrant": False},
         )
 
