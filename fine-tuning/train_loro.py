@@ -85,6 +85,10 @@ def _parse_args() -> argparse.Namespace:
                    help="Skip a fold if <output-root>/loro-<repo>/adapter_config.json exists.")
 
     p.add_argument("--max-seq-length", type=int, default=8192)
+    p.add_argument("--max-seq-length-override", action="append", default=[],
+                   metavar="REPO=N",
+                   help="Per-fold max-seq-length override, e.g. --max-seq-length-override cfnlint_qa=6144. "
+                        "Repeatable. Applies when REPO is the held-out fold.")
 
     lora = p.add_argument_group("LoRA")
     lora.add_argument("--lora-r", type=int, default=16)
@@ -123,15 +127,25 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _parse_seq_overrides(items: List[str]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for item in items:
+        if "=" not in item:
+            raise SystemExit(f"--max-seq-length-override expects REPO=N, got {item!r}")
+        repo, value = item.split("=", 1)
+        out[repo.strip()] = int(value)
+    return out
+
+
 def _build_cfg_for_fold(args: argparse.Namespace, held_out: str, train_repos: List[str],
-                        output_dir: Path) -> TrainingConfig:
+                        output_dir: Path, max_seq_length: int) -> TrainingConfig:
     return TrainingConfig(
         model_path=args.model,
         output_dir=output_dir,
         data=DataConfig(
             dataset_dir=args.dataset_dir,
             repos=train_repos,
-            max_seq_length=args.max_seq_length,
+            max_seq_length=max_seq_length,
         ),
         lora=LoraConfig(
             r=args.lora_r,
@@ -182,7 +196,8 @@ def _dump_metrics(trainer, output_dir: Path, held_out: str) -> None:
     logger.info("  → metrics saved to %s", metrics_path)
 
 
-def _run_fold(args: argparse.Namespace, held_out: str, all_repos: List[str]) -> None:
+def _run_fold(args: argparse.Namespace, held_out: str, all_repos: List[str],
+              seq_overrides: dict[str, int]) -> None:
     train_repos = [r for r in all_repos if r != held_out]
     fold_dir = args.output_root / f"loro-{held_out}"
 
@@ -191,8 +206,13 @@ def _run_fold(args: argparse.Namespace, held_out: str, all_repos: List[str]) -> 
                     held_out, fold_dir)
         return
 
+    max_seq_length = seq_overrides.get(held_out, args.max_seq_length)
+    if max_seq_length != args.max_seq_length:
+        logger.info("Per-fold override: max_seq_length=%d for held-out=%s (default %d)",
+                    max_seq_length, held_out, args.max_seq_length)
+
     fold_dir.mkdir(parents=True, exist_ok=True)
-    cfg = _build_cfg_for_fold(args, held_out, train_repos, fold_dir)
+    cfg = _build_cfg_for_fold(args, held_out, train_repos, fold_dir, max_seq_length)
 
     logger.info("=" * 72)
     logger.info("FOLD: held-out=%s   train_repos=%s", held_out, train_repos)
@@ -207,7 +227,7 @@ def _run_fold(args: argparse.Namespace, held_out: str, all_repos: List[str]) -> 
     eval_data_cfg = DataConfig(
         dataset_dir=args.dataset_dir,
         repos=[held_out],
-        max_seq_length=args.max_seq_length,
+        max_seq_length=max_seq_length,
     )
     eval_ds = build_dataset(eval_data_cfg, tokenizer)
     logger.info("Eval set (held-out=%s): %d examples", held_out, len(eval_ds))
@@ -246,6 +266,10 @@ def main() -> None:
     args.output_root = args.output_root.resolve()
     args.output_root.mkdir(parents=True, exist_ok=True)
 
+    seq_overrides = _parse_seq_overrides(args.max_seq_length_override)
+    if seq_overrides:
+        logger.info("Per-fold max_seq_length overrides: %s", seq_overrides)
+
     all_repos = _discover_repos(args.dataset_dir)
     if not all_repos:
         raise SystemExit(f"No repos found in {args.dataset_dir}")
@@ -264,7 +288,7 @@ def main() -> None:
     for i, held_out in enumerate(folds, start=1):
         logger.info("\n[%d/%d] Starting fold for held-out repo: %s",
                     i, len(folds), held_out)
-        _run_fold(args, held_out, all_repos)
+        _run_fold(args, held_out, all_repos, seq_overrides)
 
         # Append a brief summary line per fold so the JSON is updated incrementally.
         metrics_path = args.output_root / f"loro-{held_out}" / "metrics.json"
