@@ -13,12 +13,14 @@ unavailable, though it is faster with a GPU.
 
 from __future__ import annotations
 
+import json
 import logging
+import shutil
 from pathlib import Path
 
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from .config import MergeConfig
 
@@ -28,6 +30,39 @@ _DTYPE_MAP: dict[str, torch.dtype] = {
     "bfloat16": torch.bfloat16,
     "float16":  torch.float16,
 }
+
+
+def _write_preprocessor_config(base_dir: Path, output_dir: Path) -> None:
+    """
+    vLLM's HF renderer for Gemma 4 calls AutoFeatureExtractor / AutoImageProcessor
+    which look for preprocessor_config.json. Gemma4Processor.save_pretrained
+    doesn't write that file separately, so extract the image_processor sub-dict
+    from the base's processor_config.json and write it ourselves.
+    """
+    src = base_dir / "processor_config.json"
+    dst = output_dir / "preprocessor_config.json"
+    if dst.exists():
+        return
+    if not src.exists():
+        logger.warning(
+            "Base dir has no processor_config.json; cannot synthesize "
+            "preprocessor_config.json. vLLM will likely refuse to serve.",
+        )
+        return
+    try:
+        cfg = json.loads(src.read_text())
+    except Exception as exc:
+        logger.warning("Could not parse %s: %s", src, exc)
+        return
+    image_cfg = cfg.get("image_processor")
+    if image_cfg is None:
+        logger.warning(
+            "processor_config.json has no 'image_processor' section; vLLM may "
+            "refuse to serve this merged model.",
+        )
+        return
+    dst.write_text(json.dumps(image_cfg, indent=2))
+    logger.info("Wrote %s (extracted from base processor_config.json)", dst)
 
 
 def merge_adapter(
@@ -58,11 +93,17 @@ def merge_adapter(
 
     # Load base in full precision (not quantized — we need exact float weights
     # for the merge arithmetic to be correct).
-    logger.info("Loading base model from %s in %s ...", base_model, dtype)
+    #
+    # NOTE: device_map="auto" silently dropped 18 RMSNorm tensors on Gemma 4 4B
+    # (model.language_model.layers.24-41.self_attn.k_norm.weight) — accelerate's
+    # offload hooks didn't round-trip them through save_pretrained. Pin to a
+    # single device; the 8 GB bf16 base fits on H100 with room to spare.
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info("Loading base model from %s in %s on %s ...", base_model, dtype, device)
     base = AutoModelForCausalLM.from_pretrained(
         base_model,
         torch_dtype=torch_dtype,
-        device_map="auto",
+        device_map={"": device},
         trust_remote_code=True,
         low_cpu_mem_usage=True,
     )
@@ -87,6 +128,27 @@ def merge_adapter(
     logger.info("Saving tokenizer from %s ...", tokenizer_source)
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, trust_remote_code=True)
     tokenizer.save_pretrained(str(output_dir))
+
+    # Gemma 4 is multimodal — vLLM's HF renderer demands preprocessor_config.json
+    # / processor_config.json (image+audio processors) even when we serve text-only.
+    # Always copy these from the base model so the merged dir is a complete HF
+    # model directory.
+    try:
+        logger.info("Saving multimodal processor from %s ...", base_model)
+        processor = AutoProcessor.from_pretrained(base_model, trust_remote_code=True)
+        processor.save_pretrained(str(output_dir))
+    except Exception as exc:
+        logger.warning(
+            "Could not save AutoProcessor (this is fine for text-only models, "
+            "but vLLM will refuse to serve Gemma 4 without it): %s",
+            exc,
+        )
+
+    # `Gemma4Processor.save_pretrained` writes processor_config.json but NOT a
+    # separate preprocessor_config.json, which vLLM's HF renderer demands.
+    # Extract the image_processor sub-dict from the base's processor_config.json
+    # and write it as preprocessor_config.json in the merged dir.
+    _write_preprocessor_config(Path(base_model), output_dir)
 
     logger.info("Merge complete.  Merged model: %s", output_dir)
     logger.info(

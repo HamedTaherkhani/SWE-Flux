@@ -81,7 +81,155 @@ MAX_TOOL_ROUNDS = 30
 DEFAULT_MODEL = "gpt-5.4"
 DEFAULT_WORKERS = 4
 
+# Force sequential tool use: one call per assistant turn so each result can
+# inform the next. A 4B student can't safely batch reads it never sees results
+# for — and the teacher tends to overuse parallel calls.
+PARALLEL_TOOL_CALLS = False
+
+# When the teacher emits a tool call with empty assistant content, retry with
+# a reminder. Empty content trains the student to act without reasoning, which
+# is the single worst thing for a small model.
+EMPTY_CONTENT_REMINDER = (
+    "Before any tool call write 1-2 SHORT sentences saying what you will do "
+    "next and why. Do not summarize what you just read. Reissue your previous "
+    "response with that one-line plan, then the tool call."
+)
+MAX_EMPTY_CONTENT_RETRIES = 2
+
+# The very first tool call in a trajectory MUST be list_dir, never read_file.
+# Reason: the SFT data was 98% read_file-first because GPT-5.4 has world
+# knowledge of repo layouts (it can guess "src/cfnlint/" or "sympy/core/")
+# and a 4B student doesn't. Training on that pattern teaches the student to
+# guess paths, then loop on read_file failures. Base Gemma 4 starts with
+# list_dir 97% of the time — we want the fine-tuned model to keep that habit.
+FIRST_CALL_REMINDER = (
+    "Your previous response broke the exploration rule. The FIRST tool call "
+    "in this trajectory MUST be `list_dir`, not `read_file`. Choose a directory "
+    "you can verify (e.g. `list_dir(path=\"files\")` to see test files, or "
+    "`list_dir(path=\".\")` to discover the repository's top-level layout). "
+    "Reissue your response: begin with 1-2 SHORT sentences saying which "
+    "directory you will list and why, then a single `list_dir` call."
+)
+MAX_FIRST_CALL_RETRIES = 2
+
 _SKIP_DIRS = {"shared", "qa_artifacts"}
+
+# ---------------------------------------------------------------------------
+# Gemma 4 tool-call wire format
+# ---------------------------------------------------------------------------
+# vLLM's gemma4 tool parser expects assistant tool calls in this exact shape:
+#   <|tool_call>call:NAME{key:<|"|>value<|"|>,num:42}<tool_call|>
+# i.e. bare keys, string values delimited by <|"|>, bare numbers.
+#
+# We bake this wire format into the saved student records so the JSON dataset
+# is self-describing and training does not depend on any Gemma 4-specific
+# chat-template behavior. finetune/data.py applies the same rewrite at load
+# time (idempotent on already-rewritten records).
+_GEMMA4_STR_DELIM = '<|"|>'
+_GEMMA4_TOOL_START = "<|tool_call>"
+_GEMMA4_TOOL_END = "<tool_call|>"
+
+
+def _gemma4_value(v: Any) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if v is None:
+        return "null"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, str):
+        return f"{_GEMMA4_STR_DELIM}{v}{_GEMMA4_STR_DELIM}"
+    if isinstance(v, list):
+        return "[" + ",".join(_gemma4_value(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{" + ",".join(f"{k}:{_gemma4_value(x)}" for k, x in v.items()) + "}"
+    return f"{_GEMMA4_STR_DELIM}{v}{_GEMMA4_STR_DELIM}"
+
+
+def _gemma4_tool_call_text(name: str, arguments: Any) -> str:
+    if isinstance(arguments, str):
+        try:
+            args = json.loads(arguments) if arguments else {}
+        except json.JSONDecodeError:
+            args = {}
+    else:
+        args = arguments or {}
+    body = ",".join(f"{k}:{_gemma4_value(v)}" for k, v in args.items())
+    return f"{_GEMMA4_TOOL_START}call:{name}{{{body}}}{_GEMMA4_TOOL_END}"
+
+
+def _canonicalize_path(p: str, repo_root: Path, instance_dir: Path, testbed_subdir: str) -> str:
+    """
+    Rewrite an absolute or /testbed path to its canonical relative form.
+
+    Eval-time tools accept paths relative to repo_root (e.g. src/foo.py) or
+    instance_dir (e.g. files/tests/qa/x.py). Training the student on a mix of
+    /testbed/<subdir>/X, /home/<user>/.../repo_cache/<repo>/X, and bare X teaches
+    a confused rule; this normalizes to the bare form so the student sees one
+    consistent path convention.
+    """
+    if not p or not isinstance(p, str):
+        return p
+    if p.startswith("/testbed/"):
+        prefix = "/testbed/" if testbed_subdir == "." else f"/testbed/{testbed_subdir}/"
+        if p.startswith(prefix):
+            return p[len(prefix):]
+        return p[len("/testbed/"):]
+    inst_str = str(instance_dir).rstrip("/") + "/"
+    if p.startswith(inst_str):
+        return p[len(inst_str):]
+    root_str = str(repo_root).rstrip("/") + "/"
+    if p.startswith(root_str):
+        return p[len(root_str):]
+    return p
+
+
+def _canonicalize_tool_call_paths(
+    messages: List[Dict[str, Any]],
+    repo_root: Path,
+    instance_dir: Path,
+    testbed_subdir: str,
+) -> List[Dict[str, Any]]:
+    """Rewrite each tool_call argument's `path` field to its canonical relative form."""
+    out: List[Dict[str, Any]] = []
+    for m in messages:
+        if m.get("role") != "assistant" or not m.get("tool_calls"):
+            out.append(m)
+            continue
+        new_tcs = []
+        for tc in m["tool_calls"]:
+            fn = dict(tc.get("function", {}))
+            args_str = fn.get("arguments", "{}")
+            try:
+                args = json.loads(args_str) if args_str else {}
+                if isinstance(args, dict) and isinstance(args.get("path"), str):
+                    args["path"] = _canonicalize_path(args["path"], repo_root, instance_dir, testbed_subdir)
+                fn["arguments"] = json.dumps(args)
+            except json.JSONDecodeError:
+                pass
+            new_tcs.append({**tc, "function": fn})
+        out.append({**m, "tool_calls": new_tcs})
+    return out
+
+
+def _rewrite_assistant_tool_calls(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Inline tool_calls into content using Gemma 4 wire format, then drop tool_calls."""
+    out: List[Dict[str, Any]] = []
+    for m in messages:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            wire = "".join(
+                _gemma4_tool_call_text(
+                    tc.get("function", {}).get("name", ""),
+                    tc.get("function", {}).get("arguments", "{}"),
+                )
+                for tc in m["tool_calls"]
+            )
+            content = (m.get("content") or "")
+            new_content = (content + ("\n" if content.strip() else "") + wire).strip()
+            out.append({"role": "assistant", "content": new_content})
+        else:
+            out.append(m)
+    return out
 
 # ---------------------------------------------------------------------------
 # Tool definitions — read_file + list_dir only (no get_repo_map)
@@ -405,21 +553,48 @@ WORKFLOW
 2. Consult the trace PRIVATELY to know which arguments were passed and which
    code path executed. Use that to decide which files to read.
 
-3. Use read_file and list_dir to read the relevant source code. Navigate from
-   the instance files (files/tests/qa/) → the called function → implementation.
+3. EXPLORATION RULE (mandatory): your FIRST tool call MUST be `list_dir`,
+   never `read_file`. This forces you to verify the directory layout before
+   reading. Acceptable first moves:
+     • `list_dir(path="files")` — see what instance test files exist
+     • `list_dir(path=".")` — see the repository's top-level layout
+     • `list_dir(path="<dir>")` — a directory you can derive from the
+       question's path hints, e.g. `list_dir(path="src/cfnlint/context")`
+       if the question mentions `src/cfnlint/context/conditions/_utils.py`
 
-4. In EVERY assistant message during exploration, write explicit code-based
-   reasoning:
-   — what function / data structure you are reading and what you found
-   — how the code logic processes the specific test inputs, step by step
-   — what the code produces and why, referencing specific lines you read
-   — what you will read next and why
+   Repository layouts vary across projects and may differ from what the
+   question text shows:
+     • src-layout: `src/<pkg>/...` (e.g. cfnlint, keras, matplotlib)
+     • flat layout: `<pkg>/...` (e.g. faker, qtile, reflex, xarray, telegram)
+     • stripped layout: the question may say `<pkg>/foo/bar.py` but the
+       local cache may have `foo/bar.py` (the `<pkg>/` prefix was stripped
+       when the repo was materialized) — Sympy is a typical example.
 
-5. Make ONLY tool calls that are directly relevant. Avoid unnecessary files.
+   If your first `list_dir` fails or shows an unexpected layout, immediately
+   issue another `list_dir` against a different path (e.g. fall back to
+   `list_dir(path=".")`) until you have a verified top-level map. Only after
+   that may you start calling `read_file`.
 
-6. When you have read all the relevant code:  {TOOL_PHASE_DONE_SENTINEL}
+4. Continue using `read_file` and `list_dir` to navigate from the instance
+   files (files/tests/qa/) → the called function → implementation.
 
-7. After the follow-up prompt, return ONLY the raw JSON answer — no markdown,
+5. REASONING BUDGET (strict): in every assistant message during exploration,
+   write 1-2 SHORT sentences — say only what you will do next and why.
+   DO NOT summarize content you just read; the reader already saw it. DO NOT
+   restate the question or the template. Save the complete derivation for the
+   FINAL JSON answer.
+
+   ✓ "I'll read `solvers.py` lines 200-400 to see the `_solve` dispatch logic."
+   ✓ "The test exercises `Fn::FindInMap` six times; next I'll open the
+       resolver to find each return path."
+   ✗ A paragraph quoting lines you just read (truncates the budget for nothing)
+   ✗ Restating the question you were just asked
+
+6. Make ONLY tool calls that are directly relevant. Avoid unnecessary files.
+
+7. When you have read all the relevant code:  {TOOL_PHASE_DONE_SENTINEL}
+
+8. After the follow-up prompt, return ONLY the raw JSON answer — no markdown,
    no explanations.
 
 ═══════════════════════════════════════════════════════
@@ -428,10 +603,10 @@ QUALITY REQUIREMENTS
 
 • Never quote or mention the execution trace
 • Every claim about a runtime value must follow logically from source code read
-• A reader with no trace access must be able to follow and verify your reasoning
-• Reasoning must form a complete chain: question → code logic → value
+• Exploration messages: 1-2 SHORT sentences per turn (next step + why). Do
+  not retype file contents or summarize what the reader can see in tool results.
 • Tool calls must represent the minimal sufficient investigation
-• Final answer: raw JSON only — no markdown, no headings
+• Final answer: raw JSON only — no markdown, no headings, no derivation
 """
     if extra_note:
         base += f"\n\nNOTE: {extra_note}"
@@ -467,6 +642,10 @@ def _make_user_prompt(
     User message shared between teacher and student contexts.
     Matches build_user_prompt() from run_llm_repomap_eval_host.py exactly — no trace,
     no test file content inline. The trace is private in the teacher system prompt only.
+
+    Host paths are intentionally omitted: the student must use relative paths
+    (per STUDENT_SYSTEM_PROMPT) and absolute paths would leak host-specific
+    prefixes that don't match the eval-time environment.
     """
     template_str = json.dumps(template_answer, sort_keys=True, separators=(",", ":"))
 
@@ -487,12 +666,11 @@ def _make_user_prompt(
     preview_str = "\n".join(preview_lines)
 
     return (
-        f"Repository root: {repo_root}\n"
-        f"Instance directory: {instance_dir}\n"
         f"Question kind: {question_kind}\n\n"
         f"Question:\n{question}\n\n"
         f"Template answer (must match exactly):\n{template_str}\n\n"
-        "Instance file preview (you can read these and repository files with tools):\n"
+        "Instance file preview (read with tools using relative paths; "
+        "repo files live at e.g. src/...):\n"
         f"{preview_str if preview_str else '- (no files)'}\n\n"
         f"Task phase 1: use tools as needed, then reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
         "Task phase 2: after the follow-up closes tool use, return only the final JSON answer object."
@@ -610,7 +788,68 @@ def _chat(client: openai.OpenAI, model: str, messages: List[Dict], **extra) -> A
     kwargs: Dict[str, Any] = dict(model=model, messages=messages, **extra)
     if not _is_reasoning_model(model) and "temperature" not in kwargs:
         kwargs["temperature"] = 0.3
+    # parallel_tool_calls is only meaningful when tools are passed; the
+    # OpenAI API ignores it otherwise but warns in some SDK versions.
+    if "tools" in kwargs and "parallel_tool_calls" not in kwargs:
+        kwargs["parallel_tool_calls"] = PARALLEL_TOOL_CALLS
     return client.chat.completions.create(**kwargs)
+
+
+def _chat_requiring_reasoning(
+    client: openai.OpenAI,
+    model: str,
+    messages: List[Dict],
+    **extra,
+) -> Any:
+    """
+    Call _chat; if the response has tool_calls but empty content, retry with a
+    transient reminder appended to the messages (the reminder is NOT persisted).
+    This protects training quality: an assistant turn that fires tools with no
+    reasoning text teaches the student to do the same.
+    """
+    base = list(messages)
+    last_resp = None
+    for attempt in range(MAX_EMPTY_CONTENT_RETRIES + 1):
+        msgs = base if attempt == 0 else base + [
+            {"role": "user", "content": EMPTY_CONTENT_REMINDER}
+        ]
+        last_resp = _chat(client, model, msgs, **extra)
+        msg = last_resp.choices[0].message
+        if not msg.tool_calls or (msg.content or "").strip():
+            return last_resp
+    return last_resp
+
+
+def _chat_loop_turn(
+    client: openai.OpenAI,
+    model: str,
+    messages: List[Dict],
+    *,
+    is_first_turn: bool,
+    **extra,
+) -> Any:
+    """
+    One turn of the agentic loop with all training-quality constraints:
+      • non-empty assistant content when tool_calls are present
+      • on the FIRST turn, the tool_call must be `list_dir` (not `read_file`)
+    Reminders are appended only to the transient retry-call messages — they
+    do NOT appear in the saved trajectory.
+    """
+    base = list(messages)
+    last_resp = _chat_requiring_reasoning(client, model, base, **extra)
+    if not is_first_turn:
+        return last_resp
+
+    for attempt in range(MAX_FIRST_CALL_RETRIES):
+        msg = last_resp.choices[0].message
+        if not msg.tool_calls:
+            return last_resp
+        first_name = msg.tool_calls[0].function.name
+        if first_name == "list_dir":
+            return last_resp
+        retry_msgs = base + [{"role": "user", "content": FIRST_CALL_REMINDER}]
+        last_resp = _chat_requiring_reasoning(client, model, retry_msgs, **extra)
+    return last_resp
 
 
 def _chat_final(client: openai.OpenAI, model: str, messages: List[Dict]) -> Any:
@@ -649,7 +888,11 @@ def run_agentic_loop(
     tool_calls_made = 0
 
     while tool_calls_made < max_rounds:
-        resp = _chat(client, model, messages, tools=TOOLS, tool_choice="auto")
+        resp = _chat_loop_turn(
+            client, model, messages,
+            is_first_turn=(tool_calls_made == 0),
+            tools=TOOLS, tool_choice="auto",
+        )
         msg = resp.choices[0].message
         content_text: str = msg.content or ""
 
@@ -748,10 +991,18 @@ def _attempt(
 
     extracted = extract_answer_from_response(final_content)
 
-    # Build student training messages: swap system to oracle-free student prompt
+    # Build student training messages: swap system to oracle-free student prompt,
+    # canonicalize tool-call paths to relative form, and rewrite tool_calls into
+    # Gemma 4 wire format inline in content.
+    canonicalized = _canonicalize_tool_call_paths(
+        teacher_messages[1:],
+        repo_root=repo_root,
+        instance_dir=instance_dir,
+        testbed_subdir=testbed_subdir,
+    )
     student_messages: List[Dict[str, Any]] = [
         {"role": "system", "content": STUDENT_SYSTEM_PROMPT},
-        *teacher_messages[1:],  # keep all user/assistant/tool turns as-is
+        *_rewrite_assistant_tool_calls(canonicalized),
     ]
 
     return student_messages, extracted
@@ -900,6 +1151,22 @@ def _enumerate_instances(qa_dir: Path, explicit: Optional[List[str]]) -> List[st
     )
 
 
+def _is_record_complete(sft_dir: Path, instance_id: str) -> bool:
+    """
+    Return True if a previously-saved record for this instance is intact.
+    Used by --resume to skip instances that finished before an interruption.
+    A record is "complete" if its file parses as JSON and has non-empty messages.
+    """
+    path = sft_dir / f"{instance_id}.json"
+    if not path.exists():
+        return False
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    return bool(rec.get("messages")) and rec.get("instance_id") == instance_id
+
+
 def _available_repos() -> List[str]:
     return sorted(
         d.name
@@ -941,6 +1208,9 @@ def main() -> None:
                         help=f"Max tool-call rounds per attempt (default: {MAX_TOOL_ROUNDS})")
     parser.add_argument("--force-copy", action="store_true",
                         help="Re-copy repo from Docker even if cache exists")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip instances whose output JSON already exists and parses. "
+                             "Use after an interrupted run to pick up where you left off.")
     parser.add_argument(
         "--repo", nargs="*", metavar="REPO", default=None,
         help=(
@@ -989,13 +1259,26 @@ def main() -> None:
     print(f"Repos    : {[c.name for c in repo_configs]}")
     print(f"Output   : {SFT_RECORDS_ROOT}/<repo>/<instance>.json\n")
 
-    n_ok = n_skip = n_discard = n_err = 0
+    n_ok = n_skip = n_discard = n_err = n_resume_skipped = 0
     _counter_lock = threading.Lock()
 
     for cfg in repo_configs:
         instance_ids = _enumerate_instances(cfg.qa_dir, args.instances)
-        print(f"[{cfg.name}] {len(instance_ids)} instances  testbed=/{cfg.testbed_subdir}/  "
-              f"repo={'OK' if cfg.repo_root else 'MISSING'}")
+        total_in_repo = len(instance_ids)
+
+        if args.resume:
+            instance_ids = [i for i in instance_ids if not _is_record_complete(cfg.sft_dir, i)]
+            already_done = total_in_repo - len(instance_ids)
+            n_resume_skipped += already_done
+            print(f"[{cfg.name}] {total_in_repo} instances total, "
+                  f"{already_done} already complete (--resume), "
+                  f"{len(instance_ids)} to process  testbed=/{cfg.testbed_subdir}/  "
+                  f"repo={'OK' if cfg.repo_root else 'MISSING'}")
+            if not instance_ids:
+                continue
+        else:
+            print(f"[{cfg.name}] {total_in_repo} instances  testbed=/{cfg.testbed_subdir}/  "
+                  f"repo={'OK' if cfg.repo_root else 'MISSING'}")
 
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             futures = {
@@ -1042,6 +1325,8 @@ def main() -> None:
     print(f"Skipped (no data)  : {n_skip}")
     print(f"Discarded (wrong)  : {n_discard}")
     print(f"Errors             : {n_err}")
+    if args.resume:
+        print(f"Already done (resume): {n_resume_skipped}")
     print(f"Per-file dir       : {SFT_RECORDS_ROOT}/")
 
 

@@ -841,13 +841,16 @@ def build_user_prompt(
         preview_lines.append(f"- ... ({omitted_count} more files)")
     preview_str = "\n".join(preview_lines)
 
+    # Host paths intentionally omitted — the model must use relative paths
+    # (e.g. files/..., src/...) so the prompt is portable across hosts and
+    # matches the training distribution from create_sft_dataset.py.
+    _ = (repo_root, instance_dir)  # kept in signature for downstream callers
     return (
-        f"Repository root: {repo_root}\n"
-        f"Instance directory: {instance_dir}\n"
         f"Question kind: {question_kind}\n\n"
         f"Question:\n{question}\n\n"
         f"Template answer (must match exactly):\n{template_str}\n\n"
-        "Instance file preview (you can read these and repository files with tools):\n"
+        "Instance file preview (read with tools using relative paths; "
+        "repo files live at e.g. src/...):\n"
         f"{preview_str if preview_str else '- (no files)'}\n\n"
         f"Task phase 1: use tools as needed, then reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
         "Task phase 2: after the follow-up closes tool use, return only the final JSON answer object."
