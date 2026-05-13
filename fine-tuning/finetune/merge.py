@@ -20,7 +20,7 @@ from pathlib import Path
 
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from .config import MergeConfig
 
@@ -100,8 +100,20 @@ def merge_adapter(
     # single device; the 8 GB bf16 base fits on H100 with room to spare.
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info("Loading base model from %s in %s on %s ...", base_model, dtype, device)
+
+    # Force num_kv_shared_layers=0 so all 42 K/V projections are materialized;
+    # see finetune/model.py:_override_kv_sharing for the full rationale.
+    cfg = AutoConfig.from_pretrained(base_model, trust_remote_code=True)
+    text_cfg = cfg.text_config if hasattr(cfg, "text_config") else cfg
+    if getattr(text_cfg, "num_kv_shared_layers", 0):
+        logger.info(
+            "Overriding num_kv_shared_layers: %d -> 0", text_cfg.num_kv_shared_layers
+        )
+        text_cfg.num_kv_shared_layers = 0
+
     base = AutoModelForCausalLM.from_pretrained(
         base_model,
+        config=cfg,
         torch_dtype=torch_dtype,
         device_map={"": device},
         trust_remote_code=True,
@@ -116,11 +128,56 @@ def merge_adapter(
     model.eval()
 
     logger.info("Saving merged model to %s ...", output_dir)
+    # Force every tensor to its own allocation (avoid safetensors dedup).
+    state_dict = {k: v.detach().clone().contiguous() for k, v in model.state_dict().items()}
+
+    # transformers' Gemma 4 model class fails to instantiate some modules that
+    # exist in the on-disk checkpoint (e.g. self_attn.k_norm for language-model
+    # layers 24-41). vLLM, however, requires every tensor the architecture
+    # declares. LoRA only targets q/k/v/o_proj + gate/up/down_proj, so any
+    # tensor present in the base but missing after the merge is something
+    # transformers dropped — copy it back from base verbatim.
+    from safetensors import safe_open as _safe_open
+    base_dir = Path(base_model)
+    base_keys: set[str] = set()
+    if base_dir.is_dir():
+        patched = 0
+        for sf in sorted(base_dir.glob("*.safetensors")):
+            with _safe_open(str(sf), framework="pt") as h:
+                for k in h.keys():
+                    base_keys.add(k)
+                    if k not in state_dict:
+                        state_dict[k] = h.get_tensor(k).to(torch_dtype).contiguous()
+                        patched += 1
+        if patched:
+            logger.info("Patched %d missing tensors from base", patched)
+
     model.save_pretrained(
         str(output_dir),
+        state_dict=state_dict,
         safe_serialization=True,     # safetensors — required for vLLM
         max_shard_size="4GB",
     )
+    del state_dict
+
+    # Hard verification: every tensor in the base checkpoint must also be in
+    # the merged dir. If not, vLLM will refuse to load. Fail loudly here
+    # rather than after a 30-second vLLM startup.
+    if base_keys:
+        merged_keys: set[str] = set()
+        for sf in sorted(output_dir.glob("*.safetensors")):
+            with _safe_open(str(sf), framework="pt") as h:
+                merged_keys.update(h.keys())
+        missing = base_keys - merged_keys
+        if missing:
+            sample = sorted(missing)[:5]
+            raise RuntimeError(
+                f"Merge incomplete: {len(missing)} tensors from base are missing "
+                f"in {output_dir}. Sample: {sample}. vLLM will refuse to load. "
+                f"This is the same Gemma 4 architectural mismatch the patch above "
+                f"is supposed to handle — investigate before serving."
+            )
+        logger.info("Verified: merged dir has all %d base tensors", len(base_keys))
 
     # The adapter directory also contains the tokenizer (we saved it there
     # during training).  Fall back to the base model tokenizer if not present.

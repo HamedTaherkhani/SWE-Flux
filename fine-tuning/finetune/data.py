@@ -72,6 +72,29 @@ def _gemma4_tool_call_text(name: str, arguments: Any) -> str:
     return f"{_GEMMA4_TOOL_START}call:{name}{{{body}}}{_GEMMA4_TOOL_END}"
 
 
+def _rewrite_tool_messages_as_user(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Convert role='tool' messages into role='user' messages so Gemma 4's chat
+    template actually renders them. The template silently drops 'tool' role
+    messages, which would otherwise hide every file read from the student during
+    training — the model would learn to emit tool calls but never see results.
+
+    Wrap the content in <tool_result>...</tool_result> so the student can tell
+    these turns apart from genuine user instructions. The collator's assistant-
+    turn loss mask is unaffected: these are still non-assistant turns.
+    """
+    out: List[Dict[str, Any]] = []
+    for m in messages:
+        if m.get("role") == "tool":
+            content = m.get("content", "") or ""
+            tool_id = m.get("tool_call_id", "")
+            preamble = f'<tool_result id="{tool_id}">' if tool_id else "<tool_result>"
+            out.append({"role": "user", "content": f"{preamble}\n{content}\n</tool_result>"})
+        else:
+            out.append(m)
+    return out
+
+
 def _rewrite_assistant_tool_calls(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Inline tool_calls into content using Gemma 4's wire format."""
     out: List[Dict[str, Any]] = []
@@ -178,7 +201,7 @@ def _format_messages(messages: List[Dict[str, Any]], tokenizer: Any) -> Optional
     """
     try:
         text: str = tokenizer.apply_chat_template(
-            _rewrite_assistant_tool_calls(messages),
+            _rewrite_tool_messages_as_user(_rewrite_assistant_tool_calls(messages)),
             tools=TOOLS,
             tokenize=False,
             add_generation_prompt=False,

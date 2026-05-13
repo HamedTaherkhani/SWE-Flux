@@ -151,6 +151,31 @@ def _flash_attention_compatible(model_path: str) -> bool:
     return True
 
 
+def _override_kv_sharing(model_path: str) -> AutoConfig:
+    """
+    Load config and force num_kv_shared_layers=0 on the text submodel.
+
+    transformers' Gemma 4 architecture implements KV-sharing for the last
+    num_kv_shared_layers (=18 by default), only instantiating k_norm/v_norm/
+    k_proj/v_proj for the first 24 layers and reusing those tensors for the
+    rest. The base checkpoint, however, has independent K/V weights for all
+    42 layers, and vLLM (the serving engine) treats every layer's K/V as
+    independent. Training under KV-sharing produces an adapter that's invalid
+    under vLLM's view — coherence collapses at inference. Setting this to 0
+    makes transformers materialize all 42 K/V projections, matching the
+    on-disk weights and vLLM's runtime behavior.
+    """
+    cfg = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+    text = cfg.text_config if hasattr(cfg, "text_config") else cfg
+    if getattr(text, "num_kv_shared_layers", 0):
+        logger.info(
+            "Overriding num_kv_shared_layers: %d -> 0 (match vLLM / base checkpoint)",
+            text.num_kv_shared_layers,
+        )
+        text.num_kv_shared_layers = 0
+    return cfg
+
+
 def load_base_model(
     model_path: str,
     quant: QuantizationConfig,
@@ -166,6 +191,7 @@ def load_base_model(
     model_kwargs: dict[str, Any] = {
         "trust_remote_code": True,
         "torch_dtype": compute_dtype,
+        "config": _override_kv_sharing(model_path),
     }
 
     if _is_distributed():
