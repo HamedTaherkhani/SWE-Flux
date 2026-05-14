@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/merge_attrs_direct_function_output_test.py`, class "
             "`TestMergeAttrsDirectFunctionOutputHardQA`, method "

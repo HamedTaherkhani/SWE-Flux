@@ -123,7 +123,7 @@ def main() -> None:
     output = evaluate(states)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/sanitize_path_parts_loop_value_invariant_suite_test.py` (all 18 "

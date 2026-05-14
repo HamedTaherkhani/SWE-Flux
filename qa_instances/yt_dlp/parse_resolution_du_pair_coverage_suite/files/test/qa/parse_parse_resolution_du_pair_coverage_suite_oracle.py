@@ -154,7 +154,7 @@ def main() -> None:
     output = evaluate(observed)
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M5_DataFlow",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/parse_resolution_du_pair_coverage_suite_test.py` (all 18 test "

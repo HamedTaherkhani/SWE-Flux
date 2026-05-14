@@ -133,7 +133,7 @@ def main() -> None:
     defs_by_line, uses_by_line, param_def_line = build_def_use_maps(TARGET_FILE.read_text(encoding="utf-8"))
     observed_pairs = extract_observed_pairs(Path(args.trace_log).read_text(encoding="utf-8"), defs_by_line, uses_by_line, param_def_line)
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C5_DataFlow",
         "question": (
             "Use `tests/qa/component_post_init_def_use_pairs_test.py`, class "
             "`TestComponentPostInitDefUsePairsQA`, method "

@@ -58,7 +58,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `faker_qa/address_en_gb_postcode_pattern_internal_state/files/testcase.py`, class "
             "`TestAddressEnGbPostcodePatternInternalStateQA`, method "

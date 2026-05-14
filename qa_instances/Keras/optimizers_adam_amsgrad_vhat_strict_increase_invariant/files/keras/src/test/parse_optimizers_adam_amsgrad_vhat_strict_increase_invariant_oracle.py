@@ -61,7 +61,7 @@ def main() -> None:
     holds, counterexample = strict_increasing(segments)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use `keras/src/test/optimizers/adam_amsgrad_vhat_strict_increase_invariant_test.py`, class "
             "`AdamAmsgradVhatStrictIncreaseInvariantQATest`, and all 12 test methods. These tests run Adam with "

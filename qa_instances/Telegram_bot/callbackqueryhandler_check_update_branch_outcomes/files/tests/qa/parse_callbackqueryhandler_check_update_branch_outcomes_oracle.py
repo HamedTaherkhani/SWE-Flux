@@ -126,7 +126,7 @@ def main() -> None:
     condition_branches = extract_condition_branches(trace_text)
 
     qa = {
-        "question_kind": "conditional_statements",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Run only `tests/qa/callbackqueryhandler_check_update_branch_outcomes_test.py::"
             "TestCallbackQueryHandlerCheckUpdateBranchOutcomesQA::"

@@ -72,7 +72,7 @@ def main() -> None:
     output = extract_concrete_dispatch(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `xarray/tests/qa/map_index_queries_concrete_sel_dispatch_test.py`, class "
             "`TestMapIndexQueriesConcreteSelDispatchHardQA`, method "

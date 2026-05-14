@@ -127,7 +127,7 @@ def main() -> None:
     output = compute_invariants(upload_dates)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/unified_strdate_upload_date_invariant_suite_test.py` (all 18 test "

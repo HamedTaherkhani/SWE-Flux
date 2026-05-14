@@ -119,7 +119,7 @@ def main() -> None:
     answer = extract_invariant(trace_text)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in "
             "`tests/qa/bezier_bisection_t0_less_t1_invariant_suite_test.py` "

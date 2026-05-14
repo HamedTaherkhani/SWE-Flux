@@ -97,7 +97,7 @@ def main() -> None:
     output = extract_state(trace_text, source_text)
 
     qa = {
-        "question_kind": "iterations",
+        "question_kind": "C3_Loops",
         "question": (
             "Use `xarray/tests/qa/decompose_interp_nth_iteration_state_test.py`, class "
             "`TestDecomposeInterpNthIterationStateHardQA`, method "

@@ -81,7 +81,7 @@ def main() -> None:
     output = extract_value_sequence(trace_text)
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/rolling_temp_dim_value_sequence_test.py`, class "
             "`TestRollingTempDimValueSequenceHardQA`, method "

@@ -155,7 +155,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C5_DataFlow",
         "question": (
             "Use `faker_qa/misc_tar_def_use/files/testcase.py`, class "
             "`TestMiscTarDefUseQA`, method `test_tar_def_use_case`. "

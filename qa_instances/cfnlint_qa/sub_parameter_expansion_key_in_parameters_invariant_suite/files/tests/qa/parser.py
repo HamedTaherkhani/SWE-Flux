@@ -160,7 +160,7 @@ def main() -> None:
     extracted = extract_invariant(trace_text)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in `tests/qa/testcase.py`, class "
             "`TestSubParameterExpansionKeyInParametersInvariantSuiteQA` "

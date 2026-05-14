@@ -82,7 +82,7 @@ def main() -> None:
     output = extract_relation(trace_text, "")
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use `xarray/tests/qa/dict_loop_relation_profile_test.py`, class "
             "`TestDictLoopRelationProfileHardQA`, and execute the full suite in that file "

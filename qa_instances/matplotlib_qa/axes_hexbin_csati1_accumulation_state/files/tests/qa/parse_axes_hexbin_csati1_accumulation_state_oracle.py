@@ -92,7 +92,7 @@ def main() -> None:
     output = extract_csati1_state(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/axes_hexbin_csati1_accumulation_state_test.py`, class "
             "`TestAxesHexbinCsati1AccumulationStateQA`, method "

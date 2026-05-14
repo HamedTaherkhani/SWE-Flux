@@ -143,7 +143,7 @@ def main() -> None:
             cex = {"segment": seg_idx, **seg_cex}
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use `keras/src/test/tree/tree_flatten_with_path_loop_key_order_invariant_hard_test.py`, "
             "class `TreeFlattenWithPathLoopKeyOrderInvariantHardQATest`, and all 12 test methods. "

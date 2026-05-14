@@ -52,7 +52,7 @@ def main() -> None:
     output = extract_max_depth(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/backend_x11_core_direct_handle_keypress_max_call_depth_test.py`, class "
             "`TestBackendX11CoreDirectHandleKeyPressMaxCallDepthQA`, method "

@@ -86,7 +86,7 @@ def main() -> None:
     invariant_exists = all(offset == 0 for offset in offset_values)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in "
             "`tests/qa/vars_literal_string_offset_invariant_suite_test.py`: all tests in "

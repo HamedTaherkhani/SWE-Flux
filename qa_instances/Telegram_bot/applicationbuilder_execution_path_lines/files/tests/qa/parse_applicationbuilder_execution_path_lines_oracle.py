@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/applicationbuilder_execution_path_lines_test.py`, class "
             "`TestApplicationBuilderExecutionPathLinesQA`, method "

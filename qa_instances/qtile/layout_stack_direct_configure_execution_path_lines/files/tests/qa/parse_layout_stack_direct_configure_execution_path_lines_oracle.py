@@ -54,7 +54,7 @@ def main() -> None:
     output = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Use `tests/qa/layout_stack_direct_configure_execution_path_lines_test.py`, class "
             "`TestLayoutStackDirectConfigureExecutionPathLinesQA`, method "

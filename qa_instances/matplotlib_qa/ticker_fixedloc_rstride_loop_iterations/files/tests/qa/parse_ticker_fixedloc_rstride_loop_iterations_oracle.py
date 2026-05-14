@@ -109,7 +109,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "iterations",
+        "question_kind": "C3_Loops",
         "question": question,
         "template_answer": {
             "loop_iteration_count": "int",

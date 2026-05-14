@@ -76,7 +76,7 @@ def main() -> None:
                 break
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Use `keras/src/test/quantizers/quantizers_absmax_trace_profile_gamma_test.py`, class "
             "`QuantizersAbsMaxTraceProfileGammaQATest`, method `test_single_dispatch_profile`. "

@@ -95,7 +95,7 @@ def main() -> None:
     output = evaluate(per_call_lines)
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/parse_age_limit_line_coverage_suite_test.py` (all 18 test methods "

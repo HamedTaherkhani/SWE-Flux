@@ -95,7 +95,7 @@ def main() -> None:
     output = extract_invariant(trace_text, source_text)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use `xarray/tests/qa/axis_slice_nonnegative_invariant_multitest_test.py`, class "
             "`TestAxisSliceNonnegativeInvariantMultitestHardQA`, and execute the full suite in that file "

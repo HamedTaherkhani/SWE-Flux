@@ -76,7 +76,7 @@ def parse_trace(trace_log_path: str, out_json_path: str):
     invariant_exists = all(domain_invariant_evals) if domain_invariant_evals else False
 
     oracle_data = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": "Use `faker_qa/internet_dga_loop_invariant/files/testcase.py`, class `TestInternetDgaLoopInvariantQA`, method `test_dga_loop_invariant_case`. Focus on function `faker.providers.internet.Provider.dga` in file `faker/providers/internet/__init__.py`. At line `361` (`return domain + \".\" + tld`), consider local variables `domain` and `length`. Across all evaluations of this line during the test suite execution, is the relationship `len(domain) == length` an invariant property? Return JSON as `{\"invariant_exists\": <bool>}` where `true` means invariant holds for every evaluation and `false` means it does not hold.",
         "template_answer": {
              "invariant_exists": "bool"

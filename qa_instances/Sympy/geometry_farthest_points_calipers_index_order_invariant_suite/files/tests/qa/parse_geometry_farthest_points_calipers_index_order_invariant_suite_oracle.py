@@ -117,7 +117,7 @@ def main() -> None:
     answer = extract_invariant(trace_text)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in "
             "`tests/qa/geometry_farthest_points_calipers_index_order_invariant_suite_test.py` "

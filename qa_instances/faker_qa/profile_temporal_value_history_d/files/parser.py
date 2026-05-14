@@ -50,7 +50,7 @@ def main() -> None:
     observed_values = extract_temporal_values(trace_text)
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `testcase.py`, class "
             "`TestProfileTemporalValueHistoryDQA`, method "

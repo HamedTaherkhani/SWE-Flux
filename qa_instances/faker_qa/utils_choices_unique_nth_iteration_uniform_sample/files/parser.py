@@ -104,7 +104,7 @@ def main() -> None:
     answer = extract_nth_iteration_value(trace_text)
 
     qa = {
-        "question_kind": "iterations",
+        "question_kind": "C3_Loops",
         "question": (
             "Use `faker_qa/utils_choices_unique_nth_iteration_uniform_sample/files/testcase.py`, class "
             "`TestUtilsChoicesUniqueNthIterationUniformSampleQA`, method "

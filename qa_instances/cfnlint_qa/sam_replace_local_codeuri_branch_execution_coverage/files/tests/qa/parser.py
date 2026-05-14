@@ -55,7 +55,7 @@ def main() -> None:
     covered_lines = extract_covered_lines(trace_text)
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestSamReplaceLocalCodeUriBranchExecutionCoverageQA`. "

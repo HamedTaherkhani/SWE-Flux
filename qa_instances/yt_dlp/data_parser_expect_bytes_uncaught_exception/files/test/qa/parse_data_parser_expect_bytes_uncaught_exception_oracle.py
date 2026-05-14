@@ -65,7 +65,7 @@ def main() -> None:
     output = extract_exception(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `test/qa/data_parser_expect_bytes_uncaught_exception_test.py`, class "
             "`TestDataParserExpectBytesUncaughtExceptionQA`, method "

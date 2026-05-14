@@ -65,7 +65,7 @@ def main() -> None:
     output = extract_keys_state(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/chatmember_restricted_data_keys_test.py`, class "
             "`TestChatMemberRestrictedDataKeysQA`, method "

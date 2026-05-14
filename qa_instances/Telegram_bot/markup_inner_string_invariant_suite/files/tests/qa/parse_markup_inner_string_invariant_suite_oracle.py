@@ -91,7 +91,7 @@ def main() -> None:
     output = extract_invariant(trace_text)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in `tests/qa/markup_inner_string_invariant_suite_test.py` "
             "(all test methods in class `TestMarkupInnerStringInvariantSuiteQA`, 16 tests). "

@@ -42,7 +42,7 @@ def main() -> None:
         )
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestLanguageExtensionsWalkCallFrequencyQA`, method "

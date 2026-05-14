@@ -69,7 +69,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `faker_qa/emoji_provider_empty_emojis_indexerror_uncaught/files/testcase.py`, class "
             "`TestEmojiProviderEmptyEmojisIndexErrorUncaughtQA`, method "

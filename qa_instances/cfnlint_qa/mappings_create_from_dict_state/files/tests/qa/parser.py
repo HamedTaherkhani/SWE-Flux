@@ -69,7 +69,7 @@ def main() -> None:
     as_nested_dict = asdict(obj)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestMappingsCreateFromDictStateQA`, method "

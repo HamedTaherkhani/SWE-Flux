@@ -62,7 +62,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "M4_ProgramState",
         "question": (
             "Execute "
             "`faker_qa/misc_provider_binary_unseeded_urandom_output_determinism/files/testcase.py::"

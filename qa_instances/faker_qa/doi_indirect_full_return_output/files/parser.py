@@ -58,7 +58,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `faker_qa/doi_indirect_full_return_output/files/testcase.py`, class "
             "`TestDoiIndirectFullReturnOutputQA`, method "

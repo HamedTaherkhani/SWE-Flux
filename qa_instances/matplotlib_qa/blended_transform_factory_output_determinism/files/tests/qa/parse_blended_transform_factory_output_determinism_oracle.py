@@ -55,7 +55,7 @@ def main() -> None:
     invariant_exists = len(retvals) == 10 and len(set(retvals)) == 1
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Execute test "
             "`tests/qa/blended_transform_factory_output_determinism_test.py::"

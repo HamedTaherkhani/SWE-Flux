@@ -35,7 +35,7 @@ def main() -> None:
     output = extract_reachable(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "subcategory": "reachability",
         "question": (
             "Use `tests/qa/scale_logtransform_forward_reachability_dual_imshow_norms_test.py`, class "

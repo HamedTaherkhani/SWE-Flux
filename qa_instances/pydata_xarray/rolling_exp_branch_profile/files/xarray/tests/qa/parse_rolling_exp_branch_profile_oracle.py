@@ -124,7 +124,7 @@ def main() -> None:
     output = extract_branch_profile(trace_text, source_text)
 
     qa = {
-        "question_kind": "conditional_statements",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Use `xarray/tests/qa/rolling_exp_branch_profile_test.py`, class "
             "`TestRollingExpBranchProfileHardQA`, method "

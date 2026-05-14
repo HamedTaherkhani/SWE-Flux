@@ -42,7 +42,7 @@ def main() -> None:
     output = extract_call_frequency(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `xarray/tests/qa/groupby_selection_call_frequency_test.py`, class "
             "`TestGroupBySelectionCallFrequencyHardQA`, method "

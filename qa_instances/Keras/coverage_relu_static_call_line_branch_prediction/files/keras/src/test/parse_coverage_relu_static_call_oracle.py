@@ -114,7 +114,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Use `keras/src/test/activations/relu_static_call_coverage_prediction_test.py`, "
             "class `ReLUStaticCallCoveragePredictionQATest`, and all test methods in this class. "

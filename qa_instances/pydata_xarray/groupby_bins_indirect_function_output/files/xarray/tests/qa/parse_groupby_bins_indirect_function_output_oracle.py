@@ -60,7 +60,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/groupby_bins_indirect_function_output_test.py`, class "
             "`TestGroupByBinsIndirectFunctionOutputHardQA`, method "

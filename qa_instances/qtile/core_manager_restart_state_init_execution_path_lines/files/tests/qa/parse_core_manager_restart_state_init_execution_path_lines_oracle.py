@@ -61,7 +61,7 @@ def main() -> None:
     output = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/core_manager_restart_state_init_execution_path_lines_test.py`, class "
             "`TestCoreManagerRestartStateInitExecutionPathLinesQA`, method "

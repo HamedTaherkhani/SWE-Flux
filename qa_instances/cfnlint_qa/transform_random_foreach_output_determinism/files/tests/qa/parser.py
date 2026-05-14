@@ -64,7 +64,7 @@ def main() -> None:
     invariant_exists = extract_invariant(trace_text)
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "M4_ProgramState",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestTransformRandomForEachOutputDeterminismQA`. The "

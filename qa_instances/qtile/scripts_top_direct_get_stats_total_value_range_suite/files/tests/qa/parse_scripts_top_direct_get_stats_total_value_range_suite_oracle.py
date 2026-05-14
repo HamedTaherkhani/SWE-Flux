@@ -75,7 +75,7 @@ def main() -> None:
         raise RuntimeError("No observed values found for variable 'total'.")
 
     qa = {
-        "question_kind": "value_range_analysis",
+        "question_kind": "M4_ProgramState",
         "question": (
             "Use the full test suite in `tests/qa/scripts_top_direct_get_stats_total_value_range_suite_test.py` "
             "(all generated test cases in class `TestScriptsTopDirectGetStatsTotalValueRangeSuiteQA`, 15 tests). "

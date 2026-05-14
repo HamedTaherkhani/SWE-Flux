@@ -98,7 +98,7 @@ def main() -> None:
     output = extract_value_range(trace_text)
 
     qa = {
-        "question_kind": "value_range_analysis",
+        "question_kind": "M4_ProgramState",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/lookup_unit_table_num_value_range_suite_test.py` (all 18 test "

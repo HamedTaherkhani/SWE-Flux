@@ -47,7 +47,7 @@ def main() -> None:
     entity_text = extract_output(trace_log)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/entity_indirect_output_case_test.py`, class "
             "`TestEntityIndirectOutputQA`, method `test_indirect_target_output_case`. "

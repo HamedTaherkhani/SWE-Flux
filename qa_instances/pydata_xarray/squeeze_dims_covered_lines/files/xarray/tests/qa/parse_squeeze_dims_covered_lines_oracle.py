@@ -90,7 +90,7 @@ def main() -> None:
     output = extract_covered_lines(trace_text, source_text)
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Use `xarray/tests/qa/squeeze_dims_covered_lines_test.py`, class "
             "`TestSqueezeDimsCoveredLinesHardQA`, and execute the full suite in that file "

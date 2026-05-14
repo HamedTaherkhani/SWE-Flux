@@ -65,7 +65,7 @@ def main() -> None:
     values = extract_values(Path(args.trace_log).read_text(encoding="utf-8"))
     invariant_exists = all(len(arg_name) > args_len for arg_name, args_len in values)
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in `tests/qa/route_get_route_args_arg_name_invariant_suite_test.py` "
             "(all 10 test classes). Focus on `reflex/route.py`, function "

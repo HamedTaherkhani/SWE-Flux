@@ -59,7 +59,7 @@ def main() -> None:
     first_30_calls = calls[:30]
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/layers/attention/mha_reachability_masked_softmax_test.py`, "
             "class `MultiHeadAttentionReachabilityMaskedSoftmaxQATest`, method "

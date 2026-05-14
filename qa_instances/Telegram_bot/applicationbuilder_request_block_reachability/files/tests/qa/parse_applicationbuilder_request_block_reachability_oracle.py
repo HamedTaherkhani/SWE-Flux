@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_reachability(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Use `tests/qa/applicationbuilder_request_block_reachability_test.py`, class "
             "`TestApplicationBuilderRequestBlockReachabilityQA`, method "

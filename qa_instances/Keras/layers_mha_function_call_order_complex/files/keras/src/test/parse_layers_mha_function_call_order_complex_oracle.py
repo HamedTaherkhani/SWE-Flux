@@ -63,7 +63,7 @@ def main() -> None:
     call_order = extract_function_call_order(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/layers/attention/mha_function_call_order_complex_test.py`, "
             "class `MultiHeadAttentionFunctionCallOrderComplexQATest`, method "

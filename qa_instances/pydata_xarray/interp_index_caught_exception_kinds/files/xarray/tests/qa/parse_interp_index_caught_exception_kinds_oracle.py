@@ -62,7 +62,7 @@ def main() -> None:
     output = extract_caught_kinds(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `xarray/tests/qa/interp_index_caught_exception_kinds_test.py`, class "
             "`TestInterpIndexCaughtExceptionKindsHardQA`, method "

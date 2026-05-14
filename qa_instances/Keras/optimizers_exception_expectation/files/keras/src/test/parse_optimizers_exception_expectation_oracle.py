@@ -38,7 +38,7 @@ def main() -> None:
     exception_message = extract_value(trace_text, "caught_exception_message")
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_exception_expectation_test.py`, "
             "class `OptimizersExceptionExpectationQATest`, method "

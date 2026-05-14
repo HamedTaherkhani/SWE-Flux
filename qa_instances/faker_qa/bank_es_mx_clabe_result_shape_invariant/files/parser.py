@@ -49,7 +49,7 @@ def parse_trace(trace_log_path: str, out_json_path: str) -> None:
     invariant_exists = bool(invariants) and all(invariants)
 
     oracle_data = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": "Use `faker_qa/bank_es_mx_clabe_result_shape_invariant/files/testcase.py`, class `TestBankClabeResultShapeInvariantQA`, method `test_clabe_result_shape_invariant`. Focus on function `faker.providers.bank.es_MX.Provider.clabe` in file `faker/providers/bank/es_MX/__init__.py`. At line `280` (`result = f\"{bank:03d}{city:03d}{branch:04d}{account:07d}\"`), consider local variable `result`. Is the shape (a 17-character string composed only of digits) of `result` an invariant property across every execution that the test method triggers? Return JSON as `{\"invariant_exists\": <bool>}` where `true` means the property holds for every evaluation and `false` means it does not hold.",
         "template_answer": {
             "invariant_exists": "bool"

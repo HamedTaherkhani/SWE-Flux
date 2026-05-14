@@ -66,7 +66,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Run the full test suite in "
             "`tests/qa/vars_literal_string_create_line_coverage_suite_test.py` "

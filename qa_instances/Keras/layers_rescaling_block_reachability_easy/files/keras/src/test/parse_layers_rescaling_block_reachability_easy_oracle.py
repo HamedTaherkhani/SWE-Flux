@@ -65,7 +65,7 @@ def main() -> None:
     block_executed = all(line in executed_lines for line in TARGET_BLOCK_LINES)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Use `keras/src/test/layers/preprocessing/rescaling_block_reachability_easy_test.py`, "
             "class `RescalingBlockReachabilityEasyQATest`, method "

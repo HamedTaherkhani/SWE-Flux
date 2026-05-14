@@ -48,7 +48,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `faker_qa/single_locale_proxy_getattr_select_factory_reachability/files/testcase.py`, class "
             "`TestSingleLocaleProxyGetattrSelectFactoryReachabilityQA`, method "

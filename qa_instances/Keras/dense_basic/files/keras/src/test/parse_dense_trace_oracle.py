@@ -33,7 +33,7 @@ def main() -> None:
     trace_text = trace_path.read_text(encoding="utf-8")
     output = extract_output_matrix(trace_text)
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `keras/src/test/layers/core/dense_basic_test.py`, class "
             "`DenseBasicTest`, method `test_dense_forward_pass` "

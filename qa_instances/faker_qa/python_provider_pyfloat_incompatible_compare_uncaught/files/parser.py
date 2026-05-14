@@ -73,7 +73,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `faker_qa/python_provider_pyfloat_incompatible_compare_uncaught/files/testcase.py`, class "
             "`TestPythonProviderPyfloatIncompatibleCompareUncaughtQA`, method "

@@ -110,7 +110,7 @@ def main() -> None:
     output = extract_invariant(trace_text, source_text)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use `xarray/tests/qa/combine_tile_ids_length_loop_invariant_test.py`, class "
             "`TestCombineTileIdsLengthLoopInvariantHardQA`, and execute the full suite in that file "

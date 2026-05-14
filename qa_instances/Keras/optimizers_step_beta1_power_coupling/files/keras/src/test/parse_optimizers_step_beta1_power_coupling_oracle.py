@@ -93,7 +93,7 @@ def main() -> None:
             break
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_step_beta1_power_coupling_test.py`, "
             "class `OptimizersStepBeta1PowerCouplingQATest`, and all 12 test methods. These tests "

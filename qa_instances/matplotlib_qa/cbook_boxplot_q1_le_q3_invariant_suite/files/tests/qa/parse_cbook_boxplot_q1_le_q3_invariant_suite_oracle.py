@@ -131,7 +131,7 @@ def main() -> None:
     answer = extract_invariant(trace_text)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in "
             "`tests/qa/cbook_boxplot_q1_le_q3_invariant_suite_test.py` "

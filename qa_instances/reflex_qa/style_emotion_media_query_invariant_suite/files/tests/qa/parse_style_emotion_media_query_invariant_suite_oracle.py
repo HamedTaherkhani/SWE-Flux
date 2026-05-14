@@ -63,7 +63,7 @@ def main() -> None:
     values = extract_values(Path(args.trace_log).read_text(encoding="utf-8"))
     invariant_exists = all(mq not in emotion_style_repr for mq, emotion_style_repr in values)
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in `tests/qa/style_emotion_media_query_invariant_suite_test.py` "
             "(all 10 test classes). Focus on `reflex/style.py`, function "

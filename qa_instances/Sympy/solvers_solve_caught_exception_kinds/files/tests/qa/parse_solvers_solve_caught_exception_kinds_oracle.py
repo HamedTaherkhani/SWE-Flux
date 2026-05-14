@@ -43,7 +43,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `tests/qa/solvers_solve_caught_exception_kinds_test.py`, class "
             "`TestSolversSolveCaughtExceptionKindsQA`, method "

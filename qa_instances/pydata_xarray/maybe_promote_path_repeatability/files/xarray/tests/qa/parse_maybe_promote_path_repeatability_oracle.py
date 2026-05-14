@@ -101,7 +101,7 @@ def main() -> None:
     output = extract_path_determinism(trace_text, source_text)
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Use `xarray/tests/qa/maybe_promote_path_repeatability_test.py`, class "
             "`TestMaybePromotePathRepeatabilityHardQA`, and execute the full suite in that file "

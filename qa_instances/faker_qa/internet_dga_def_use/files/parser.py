@@ -155,7 +155,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C5_DataFlow",
         "question": (
             "Use `faker_qa/internet_dga_def_use/files/testcase.py`, class "
             "`TestInternetDgaDefUseQA`, method `test_dga_def_use_case`. "

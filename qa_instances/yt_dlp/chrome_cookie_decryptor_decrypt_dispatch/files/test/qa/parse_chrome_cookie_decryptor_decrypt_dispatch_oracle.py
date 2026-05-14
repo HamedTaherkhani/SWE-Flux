@@ -78,7 +78,7 @@ def main() -> None:
     output = extract_dispatch(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `test/qa/chrome_cookie_decryptor_decrypt_dispatch_test.py`, class "
             "`TestChromeCookieDecryptorDecryptDispatchQA`, method "

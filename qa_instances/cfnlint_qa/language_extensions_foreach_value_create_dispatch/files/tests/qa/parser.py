@@ -56,7 +56,7 @@ def main() -> None:
     sequence = extract_dispatch_chronology(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestLanguageExtensionsForEachValueCreateDispatchQA`, "

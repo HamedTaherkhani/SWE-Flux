@@ -55,7 +55,7 @@ def main() -> None:
     covered_lines = extract_covered_lines(trace_text)
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Run the full test suite in "
             "`tests/qa/solvers_reduce_inequalities_univariate_line_coverage_suite_test.py` "

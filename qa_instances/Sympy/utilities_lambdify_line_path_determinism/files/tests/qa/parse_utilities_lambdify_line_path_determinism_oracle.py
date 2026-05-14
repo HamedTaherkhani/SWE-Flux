@@ -79,7 +79,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Execute test "
             "`tests/qa/utilities_lambdify_line_path_determinism_test.py::"

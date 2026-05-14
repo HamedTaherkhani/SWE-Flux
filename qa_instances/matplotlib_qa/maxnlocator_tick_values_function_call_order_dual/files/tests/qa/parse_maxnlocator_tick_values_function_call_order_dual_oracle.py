@@ -58,7 +58,7 @@ def main() -> None:
     output = extract_call_order(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/maxnlocator_tick_values_function_call_order_dual_test.py`, class "
             "`TestMaxnlocatorTickValuesFunctionCallOrderDualQA`, method "

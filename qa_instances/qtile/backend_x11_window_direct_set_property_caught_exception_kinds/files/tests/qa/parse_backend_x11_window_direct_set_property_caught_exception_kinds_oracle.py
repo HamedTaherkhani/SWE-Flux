@@ -49,7 +49,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `tests/qa/backend_x11_window_direct_set_property_caught_exception_kinds_test.py`, "
             "class `TestBackendX11WindowDirectSetPropertyCaughtExceptionKindsQA`, method "

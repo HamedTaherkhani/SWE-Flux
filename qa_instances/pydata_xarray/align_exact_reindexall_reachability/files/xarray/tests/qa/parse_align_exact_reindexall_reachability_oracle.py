@@ -50,7 +50,7 @@ def main() -> None:
     output = extract_reachability(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `xarray/tests/qa/align_exact_reindexall_reachability_test.py`, class "
             "`TestAlignExactReindexAllReachabilityHardQA`, method "

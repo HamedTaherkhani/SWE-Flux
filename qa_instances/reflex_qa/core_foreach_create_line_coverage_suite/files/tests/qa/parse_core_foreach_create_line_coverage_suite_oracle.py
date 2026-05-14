@@ -58,7 +58,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Run the full test suite in `tests/qa/core_foreach_create_line_coverage_suite_test.py` "
             "(all 10 test classes). Focus only on `reflex/components/core/foreach.py`, "

@@ -65,7 +65,7 @@ def main() -> None:
     output = extract_reachability(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Use `xarray/tests/qa/apply_ufunc_newaxis_block_reachability_test.py`, class "
             "`TestApplyUfuncNewaxisBlockReachabilityHardQA`, method "

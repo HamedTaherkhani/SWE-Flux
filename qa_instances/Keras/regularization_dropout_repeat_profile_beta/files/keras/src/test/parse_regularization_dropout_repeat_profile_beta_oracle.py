@@ -61,7 +61,7 @@ def main() -> None:
                 break
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `keras/src/test/layers/regularization/dropout_repeat_profile_beta_test.py`, class "
             "`DropoutRepeatProfileBetaQATest`, method `test_repeated_output_profile`. This test executes "

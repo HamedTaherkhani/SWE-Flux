@@ -88,7 +88,7 @@ def main() -> None:
     dispatched = extract_dispatched_update_step(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_dynamic_dispatch_update_step_deep_test.py`, "
             "class `OptimizersDynamicDispatchUpdateStepDeepQATest`, method "

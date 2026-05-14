@@ -62,7 +62,7 @@ def main() -> None:
     output = extract_exception(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `test/qa/webvtt_parse_fragment_uncaught_exception_test.py`, class "
             "`TestWebvttParseFragmentUncaughtExceptionQA`, method "

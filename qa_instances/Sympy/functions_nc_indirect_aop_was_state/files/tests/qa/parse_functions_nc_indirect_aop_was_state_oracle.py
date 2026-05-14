@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/functions_nc_indirect_aop_was_state_test.py`, class "
             "`TestFunctionsNcIndirectAopWasStateQA`, method "

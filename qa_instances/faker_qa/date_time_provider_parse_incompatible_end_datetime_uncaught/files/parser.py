@@ -68,7 +68,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `faker_qa/date_time_provider_parse_incompatible_end_datetime_uncaught/files/testcase.py`, class "
             "`TestDateTimeProviderParseIncompatibleEndDatetimeUncaughtQA`, method "

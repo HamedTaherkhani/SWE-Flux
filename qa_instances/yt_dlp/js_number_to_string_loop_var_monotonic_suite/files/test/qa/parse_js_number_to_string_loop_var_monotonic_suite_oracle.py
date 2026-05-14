@@ -122,7 +122,7 @@ def main() -> None:
     output = evaluate(per_call_digits)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/js_number_to_string_loop_var_monotonic_suite_test.py` (all 18 test "

@@ -101,7 +101,7 @@ def main() -> None:
     output = evaluate_invariant(iteration_vals)
 
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/parse_m3u8_attributes_loop_value_invariant_suite_test.py` (all 18 "

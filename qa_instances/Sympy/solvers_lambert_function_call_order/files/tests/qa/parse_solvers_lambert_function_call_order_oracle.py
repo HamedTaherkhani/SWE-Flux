@@ -50,7 +50,7 @@ def main() -> None:
     output = extract_call_order(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/solvers_lambert_function_call_order_test.py`, class "
             "`TestSolversLambertFunctionCallOrderQA`, method "

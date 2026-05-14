@@ -138,7 +138,7 @@ def main() -> None:
     condition_branches = extract_branch_outcomes(trace_text, conditionals)
 
     qa = {
-        "question_kind": "conditional_statements",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Run the FULL test suite in "
             "`test/qa/no_supporting_handlers_init_branch_outcomes_test.py` (all test "

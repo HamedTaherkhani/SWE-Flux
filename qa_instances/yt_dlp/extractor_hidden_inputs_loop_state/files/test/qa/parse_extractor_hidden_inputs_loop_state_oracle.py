@@ -73,7 +73,7 @@ def main() -> None:
     state = extract_state(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `test/qa/extractor_hidden_inputs_loop_state_test.py`, class "
             "`TestExtractorHiddenInputsLoopStateQA`, method "

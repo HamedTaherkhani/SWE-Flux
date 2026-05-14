@@ -43,7 +43,7 @@ def main() -> None:
     output = count_score_family_calls(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/font_manager_score_family_call_frequency_quad_test.py`, class "
             "`TestFontManagerScoreFamilyCallFrequencyQuadQA`, method "

@@ -107,7 +107,7 @@ def main() -> None:
     output = extract_execution_path(trace_text)
 
     qa = {
-        'question_kind': 'control_flow_prediction',
+        'question_kind': 'C1_IntraProceduralCFG',
         'question': (
             'Use `xarray/tests/qa/dataset_rolling_construct_execution_path_test.py`, class '
             '`TestDatasetRollingConstructExecutionPathHardQA`, method '

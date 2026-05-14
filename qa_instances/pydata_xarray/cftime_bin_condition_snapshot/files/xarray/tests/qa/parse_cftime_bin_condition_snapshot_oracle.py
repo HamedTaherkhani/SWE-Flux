@@ -98,7 +98,7 @@ def main() -> None:
     output = extract_snapshot(trace_text, source_text)
 
     qa = {
-        "question_kind": "conditional_statements",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/cftime_bin_condition_snapshot_test.py`, class "
             "`TestCFTimeBinConditionSnapshotHardQA`, method "

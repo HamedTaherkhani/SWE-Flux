@@ -147,7 +147,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C5_DataFlow",
         "question": (
             "Use `faker_qa/barcode_ean_def_use/files/testcase.py`, class "
             "`TestBarcodeEanDefUseQA`, method `test_ean_def_use_case`. "

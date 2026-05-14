@@ -38,7 +38,7 @@ def main() -> None:
     output = extract_call_frequency(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/inputmedia_parse_file_input_call_frequency_test.py`, class "
             "`TestInputMediaParseFileInputCallFrequencyQA`, method "

@@ -93,7 +93,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Execute "
             "`faker_qa/misc_provider_password_line_path_determinism/files/testcase.py::"

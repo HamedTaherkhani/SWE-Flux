@@ -52,7 +52,7 @@ def main() -> None:
     output = extract_exception_kinds(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `test/qa/cache_load_caught_exception_kinds_test.py`, class "
             "`TestCacheLoadCaughtExceptionKindsQA`, method "

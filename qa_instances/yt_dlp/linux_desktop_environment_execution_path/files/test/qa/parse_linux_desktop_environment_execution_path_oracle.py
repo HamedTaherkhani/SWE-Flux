@@ -51,7 +51,7 @@ def main() -> None:
     output = extract_path(trace_text)
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `test/qa/linux_desktop_environment_execution_path_test.py`, class "
             "`TestLinuxDesktopEnvironmentExecutionPathQA`, method "

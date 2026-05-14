@@ -56,7 +56,7 @@ def main() -> None:
     covered_lines = extract_covered_lines(trace_text)
 
     qa = {
-        "question_kind": "coverage_prediction",
+        "question_kind": "M1_IntraProceduralCFG",
         "question": (
             "Run the full test suite in `tests/qa/inputmedia_parse_file_input_line_coverage_suite_test.py` "
             "(all tests in that file, 20 tests total). Focus only on `telegram/_utils/files.py`, "

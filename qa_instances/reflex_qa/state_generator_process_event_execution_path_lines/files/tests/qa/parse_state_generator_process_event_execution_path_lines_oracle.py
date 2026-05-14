@@ -58,7 +58,7 @@ def main() -> None:
 
     output = extract_execution_path(Path(args.trace_log).read_text(encoding="utf-8"))
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/state_generator_process_event_execution_path_lines_test.py`, class "
             "`TestStateGeneratorProcessEventExecutionPathLinesQA`, method "

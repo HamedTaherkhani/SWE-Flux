@@ -57,7 +57,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "control_flow_prediction",
+        "question_kind": "C2_InterProceduralCFG",
         "question": (
             "Use `faker_qa/faker_chained_pystruct_pydict_parse_max_call_depth/files/testcase.py`, class "
             "`TestFakerChainedPystructPydictParseMaxCallDepthQA`, method "

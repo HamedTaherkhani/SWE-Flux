@@ -67,7 +67,7 @@ def main() -> None:
     total_iterations = extract_total_iterations(trace_text)
 
     qa = {
-        "question_kind": "iterations",
+        "question_kind": "M3_Loops",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestSamReplaceLocalCodeUriLoopTotalIterationsQA`. The "

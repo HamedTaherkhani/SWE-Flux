@@ -49,7 +49,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/treetab_indirect_get_next_window_loop_state_test.py`, class "
             "`TestTreeTabIndirectGetNextWindowLoopStateQA`, method "

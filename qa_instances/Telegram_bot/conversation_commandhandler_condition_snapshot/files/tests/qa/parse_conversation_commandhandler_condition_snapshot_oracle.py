@@ -93,7 +93,7 @@ def main() -> None:
     answer = extract_condition_snapshot(trace_text)
 
     qa = {
-        "question_kind": "conditional_statements",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/conversation_commandhandler_condition_snapshot_test.py`, class "
             "`TestConversationCommandHandlerConditionSnapshotQA`, method "

@@ -112,7 +112,7 @@ def main() -> None:
     output = evaluate(values)
 
     qa = {
-        "question_kind": "value_range_analysis",
+        "question_kind": "M4_ProgramState",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/determine_ext_guess_value_set_suite_test.py` (all 18 test methods "

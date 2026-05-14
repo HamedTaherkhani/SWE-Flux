@@ -67,7 +67,7 @@ def main() -> None:
     output = extract_exception_profile(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `xarray/tests/qa/isdtype_kind_exception_profile_test.py`, class "
             "`TestIsDtypeKindExceptionProfileHardQA`, method "

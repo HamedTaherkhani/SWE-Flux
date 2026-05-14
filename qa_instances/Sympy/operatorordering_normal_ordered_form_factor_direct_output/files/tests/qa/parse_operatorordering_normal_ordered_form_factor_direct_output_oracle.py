@@ -43,7 +43,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/operatorordering_normal_ordered_form_factor_direct_output_test.py`, class "
             "`TestOperatorOrderingNormalOrderedFormFactorDirectOutputQA`, method "

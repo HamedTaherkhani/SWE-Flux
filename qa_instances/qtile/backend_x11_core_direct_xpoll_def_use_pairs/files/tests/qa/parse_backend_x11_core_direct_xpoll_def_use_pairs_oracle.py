@@ -145,7 +145,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C5_DataFlow",
         "question": (
             "Use `tests/qa/backend_x11_core_direct_xpoll_def_use_pairs_test.py`, class "
             "`TestBackendX11CoreDirectXpollDefUsePairsQA`, method "

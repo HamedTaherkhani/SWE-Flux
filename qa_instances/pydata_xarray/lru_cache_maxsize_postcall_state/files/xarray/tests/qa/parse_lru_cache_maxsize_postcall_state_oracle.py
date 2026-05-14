@@ -79,7 +79,7 @@ def main() -> None:
     output = _parse_test_state(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/lru_cache_maxsize_postcall_state_test.py`, class "
             "`TestLruCacheMaxsizePostcallStateHardQA`, method "

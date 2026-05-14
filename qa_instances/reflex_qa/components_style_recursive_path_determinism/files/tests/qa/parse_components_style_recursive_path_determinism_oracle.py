@@ -65,7 +65,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "determinism_flakiness",
+        "question_kind": "C1_IntraProceduralCFG",
         "question": (
             "Execute test `tests/qa/components_style_recursive_path_determinism_test.py::"
             "TestComponentsStyleRecursivePathDeterminismQA::"

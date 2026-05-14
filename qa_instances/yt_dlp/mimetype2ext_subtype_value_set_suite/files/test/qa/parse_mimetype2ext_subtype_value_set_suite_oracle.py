@@ -88,7 +88,7 @@ def main() -> None:
     output = extract_value_set(trace_text)
 
     qa = {
-        "question_kind": "value_range_analysis",
+        "question_kind": "M4_ProgramState",
         "question": (
             "Use the FULL test suite in "
             "`test/qa/mimetype2ext_subtype_value_set_suite_test.py` (all 18 test methods "

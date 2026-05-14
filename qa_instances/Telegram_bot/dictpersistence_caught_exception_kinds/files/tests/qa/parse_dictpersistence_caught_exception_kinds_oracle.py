@@ -52,7 +52,7 @@ def main() -> None:
     output = extract_caught_exception_kinds(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `tests/qa/dictpersistence_caught_exception_kinds_test.py`, class "
             "`TestDictPersistenceCaughtExceptionKindsQA`, method "

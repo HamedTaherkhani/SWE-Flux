@@ -135,7 +135,7 @@ def main() -> None:
     observed_pairs = extract_observed_pairs(trace_text, defs_by_line, uses_by_line, tracked_vars)
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C5_DataFlow",
         "question": (
             "Use `tests/qa/applicationbuilder_build_request_def_use_pairs_test.py`, class "
             "`TestApplicationBuilderBuildRequestDefUsePairsQA`, method "

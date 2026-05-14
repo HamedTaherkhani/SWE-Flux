@@ -48,7 +48,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "conditional_statements",
+        "question_kind": "C4_ProgramState",
         "question_subtype": "condition_variable_snapshot",
         "question": (
             "Use `faker_qa/weighted_proxy_select_factory_if_weights_snapshot/files/testcase.py`, class "

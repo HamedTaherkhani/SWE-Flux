@@ -63,7 +63,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/case_b7_test.py`, class `TestCaseB7QA`, method `test_case_b7`. "
             "This test directly calls `sympy/solvers/deutils.py::_desolve` at line 15 with "

@@ -36,7 +36,7 @@ def main() -> None:
     final_focal_bce = extract_final_focal_bce(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `keras/src/test/losses/losses_state_loop_test.py`, class "
             "`LossesStateLoopQATest`, method "

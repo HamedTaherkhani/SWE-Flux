@@ -145,7 +145,7 @@ def main() -> None:
     var_list = ", ".join(f"`{v}`" for v in tracked_names_sorted)
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C5_DataFlow",
         "question": (
             "Use `tests/qa/colors_create_lookup_table_def_use_pairs_test.py`, class "
             "`TestColorsCreateLookupTableDefUsePairsQA`, method "

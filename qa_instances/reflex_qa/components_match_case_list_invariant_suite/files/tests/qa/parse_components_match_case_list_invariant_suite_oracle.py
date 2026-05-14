@@ -64,7 +64,7 @@ def main() -> None:
     values = extract_values(Path(args.trace_log).read_text(encoding="utf-8"))
     invariant_exists = all(case_list_len == len_case - 1 for case_list_len, len_case in values)
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in `tests/qa/components_match_case_list_invariant_suite_test.py` "
             "(all 10 test classes). Focus on `reflex/components/core/match.py`, class method "

@@ -49,7 +49,7 @@ def main() -> None:
     output = extract_snapshots(trace_text)
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `test/qa/make_socks_proxy_opts_incompatible_types_test.py`, class "
             "`TestMakeSocksProxyOptsIncompatibleTypesQA`, method "

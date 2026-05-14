@@ -69,7 +69,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "abnormal_behavior_prediction",
+        "question_kind": "C6_Exceptions",
         "question": (
             "Use `faker_qa/job_provider_empty_jobs_indexerror_uncaught/files/testcase.py`, class "
             "`TestJobProviderEmptyJobsIndexErrorUncaughtQA`, method "

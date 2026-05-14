@@ -95,7 +95,7 @@ def main() -> None:
     output = extract_value_range(trace_text)
 
     qa = {
-        "question_kind": "value_range_analysis",
+        "question_kind": "M4_ProgramState",
         "question": (
             "Use the full test suite in `tests/qa/message_quote_position_value_range_suite_test.py` "
             "(all test methods in class `TestMessageQuotePositionValueRangeSuiteQA`, 12 tests). "

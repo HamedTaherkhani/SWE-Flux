@@ -110,7 +110,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "program_state_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/layout_tight_constrained_geometry_state_extreme_test.py`, class "
             "`TestLayoutTightConstrainedGeometryStateExtremeQA`, method "

@@ -65,7 +65,7 @@ def main() -> None:
     values = extract_values(Path(args.trace_log).read_text(encoding="utf-8"))
     invariant_exists = all(current_cell >= max_length for current_cell, max_length in values)
     qa = {
-        "question_kind": "invariant_properties",
+        "question_kind": "M7_Invariants",
         "question": (
             "Use the full test suite in `tests/qa/utils_lcs_dp_max_invariant_suite_test.py` "
             "(all 10 test classes). Focus on `reflex/utils/format.py`, function "

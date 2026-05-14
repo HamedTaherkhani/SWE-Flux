@@ -76,7 +76,7 @@ def main() -> None:
     output = extract_value_sequence(trace_text)
 
     qa = {
-        "question_kind": "data_flow_prediction",
+        "question_kind": "C4_ProgramState",
         "question": (
             "Use `tests/qa/extbot_inline_new_result_sequence_test.py`, class "
             "`TestExtBotInlineNewResultSequenceQA`, method "
