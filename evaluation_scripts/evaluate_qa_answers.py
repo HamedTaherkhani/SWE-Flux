@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
+EXCEL_EXCLUDED_TOOLS = {"claude_code", "mini-swe-agent", "mini_swe_agent"}
 
 
 @dataclass
@@ -362,6 +363,21 @@ def merge_stats(dst: EvalStats, src: EvalStats) -> None:
     dst.failed_instances.extend(src.failed_instances)
 
 
+def aggregate_results(results: List[Tuple[EvalTarget, EvalStats]]) -> EvalStats:
+    aggregate = EvalStats()
+    for _, stats in results:
+        merge_stats(aggregate, stats)
+    return aggregate
+
+
+def filter_excel_results(results: List[Tuple[EvalTarget, EvalStats]]) -> List[Tuple[EvalTarget, EvalStats]]:
+    return [
+        (target, stats)
+        for target, stats in results
+        if target.tool.lower() not in EXCEL_EXCLUDED_TOOLS
+    ]
+
+
 def evaluate_target(
     *,
     target: EvalTarget,
@@ -488,6 +504,9 @@ def write_excel(
             "openpyxl is required for --excel. Install with: pip install openpyxl"
         ) from exc
 
+    results = filter_excel_results(results)
+    aggregate = aggregate_results(results)
+
     bold = Font(bold=True)
     wb = Workbook()
 
@@ -578,18 +597,25 @@ def write_excel(
         ws_avg.cell(row=i, column=9, value=g["invalid_pred"])
     autosize(ws_avg)
 
-    # PerKind (aggregate across the run)
+    # PerKind (aggregate by tool, so all LLM vendors/models stay together)
     ws3 = wb.create_sheet("PerKind")
-    headers = ["question_kind", "total", "correct", "accuracy_pct"]
+    headers = ["tool", "question_kind", "total", "correct", "accuracy_pct"]
     for col, h in enumerate(headers, start=1):
         ws3.cell(row=1, column=col, value=h).font = bold
-    for i, kind in enumerate(sorted(aggregate.per_kind_total.keys()), start=2):
-        k_total = aggregate.per_kind_total[kind]
-        k_correct = aggregate.per_kind_correct.get(kind, 0)
-        ws3.cell(row=i, column=1, value=kind)
-        ws3.cell(row=i, column=2, value=k_total)
-        ws3.cell(row=i, column=3, value=k_correct)
-        ws3.cell(row=i, column=4, value=round(pct(k_correct, k_total), 2))
+    per_kind_grouped: Dict[Tuple[str, str], Dict[str, int]] = {}
+    for target, stats in results:
+        for kind, k_total in stats.per_kind_total.items():
+            key = (target.tool, kind)
+            g = per_kind_grouped.setdefault(key, {"total": 0, "correct": 0})
+            g["total"] += k_total
+            g["correct"] += stats.per_kind_correct.get(kind, 0)
+    for row, (key, g) in enumerate(sorted(per_kind_grouped.items()), start=2):
+        tool, kind = key
+        ws3.cell(row=row, column=1, value=tool)
+        ws3.cell(row=row, column=2, value=kind)
+        ws3.cell(row=row, column=3, value=g["total"])
+        ws3.cell(row=row, column=4, value=g["correct"])
+        ws3.cell(row=row, column=5, value=round(pct(g["correct"], g["total"]), 2))
     autosize(ws3)
 
     # PerTargetPerKind

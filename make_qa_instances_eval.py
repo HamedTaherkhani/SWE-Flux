@@ -27,7 +27,7 @@ SKIP_DIRS = {"shared", "qa_artifacts"}
 
 
 def is_parser_file(path: Path) -> bool:
-    return path.name.startswith("parse_") and path.suffix == ".py"
+    return path.name.startswith("parse") and path.suffix == ".py"
 
 
 def should_copy_file(path: Path) -> bool:
