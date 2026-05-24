@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 try:
@@ -27,6 +28,17 @@ DEFAULT_GEMMA_4_31B_REQUEST_CAP = int(os.environ.get("REPOBEHAVE_GEMMA_4_31B_MAX
 DEFAULT_GEMINI_31_PRO_PREVIEW_REQUEST_CAP = int(
     os.environ.get("REPOBEHAVE_GEMINI_31_PRO_PREVIEW_MAX_REQUESTS", "35")
 )
+# Per-request timeout for Gemini calls (default 6 minutes). A timeout is NOT retried.
+DEFAULT_GEMINI_REQUEST_TIMEOUT_SECONDS = float(
+    os.environ.get("REPOBEHAVE_GEMINI_REQUEST_TIMEOUT_SECONDS", "600")
+)
+# Backoff applied when the Gemini API returns a rate-limit (429 / RESOURCE_EXHAUSTED) error.
+DEFAULT_GEMINI_RATE_LIMIT_BACKOFF_SECONDS = float(
+    os.environ.get("REPOBEHAVE_GEMINI_RATE_LIMIT_BACKOFF_SECONDS", "60")
+)
+DEFAULT_GEMINI_RATE_LIMIT_MAX_RETRIES = int(
+    os.environ.get("REPOBEHAVE_GEMINI_RATE_LIMIT_MAX_RETRIES", "10")
+)
 DEFAULT_FIREWORKS_REQUEST_TIMEOUT_SECONDS = float(
     os.environ.get("REPOBEHAVE_FIREWORKS_REQUEST_TIMEOUT_SECONDS", "360")
 )
@@ -47,6 +59,33 @@ FINAL_JSON_PROMPT = (
     "Do not output markdown or explanations."
 )
 DEFAULT_TOOL_NAMES = ["get_repo_map", "list_dir", "read_file"]
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    """Detect a request/read timeout so it can be left un-retried."""
+    name = type(exc).__name__.lower()
+    if "timeout" in name:
+        return True
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code in (408, 504):
+        return True
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return "timed out" in text or "timeout" in text
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Best-effort detection of a Gemini rate-limit / quota error (HTTP 429)."""
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code == 429:
+        return True
+    status = str(getattr(exc, "status", "") or "")
+    if status.upper() in {"RESOURCE_EXHAUSTED", "TOO_MANY_REQUESTS"}:
+        return True
+    text = f"{type(exc).__name__}: {exc}".lower()
+    needles = ("resource_exhausted", "rate limit", "rate-limit", "ratelimit", "too many requests", "quota")
+    if any(n in text for n in needles):
+        return True
+    return "429" in text
 
 
 def _to_int_or_none(value: Any) -> Optional[int]:
@@ -794,6 +833,32 @@ class ProviderRunner:
             )
             self._record_usage("openai-responses", getattr(response, "usage", None))
 
+    def _gemini_generate(self, client: Any, **kwargs: Any) -> Any:
+        """Call Gemini generate_content, retrying with a fixed backoff on rate-limit errors."""
+        backoff = max(0.0, DEFAULT_GEMINI_RATE_LIMIT_BACKOFF_SECONDS)
+        max_retries = max(0, DEFAULT_GEMINI_RATE_LIMIT_MAX_RETRIES)
+        attempt = 0
+        while True:
+            try:
+                return client.models.generate_content(**kwargs)
+            except Exception as exc:
+                # Timeouts are never retried on the same instance.
+                if _is_timeout_error(exc):
+                    print(f"[gemini] request timed out ({type(exc).__name__}); not retrying: {exc}", flush=True)
+                    self._t(f"[gemini] request timed out; not retrying: {exc}")
+                    raise
+                if not _is_rate_limit_error(exc) or attempt >= max_retries:
+                    raise
+                attempt += 1
+                msg = (
+                    f"[gemini] rate-limit error ({type(exc).__name__}); "
+                    f"backing off {backoff:.0f}s then retry {attempt}/{max_retries}: {exc}"
+                )
+                # Always surface to the console, and also feed the trace.
+                print(msg, flush=True)
+                self._t(msg)
+                time.sleep(backoff)
+
     def _run_gemini(
         self, *, system_prompt: str, user_prompt: str, tool_callback, enable_tools: bool, tool_names: List[str]
     ) -> str:
@@ -801,7 +866,12 @@ class ProviderRunner:
         from google.genai import types
 
         api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-        client = genai.Client(api_key=api_key)
+        # HttpOptions.timeout is in milliseconds. Default 6 minutes; a timeout is not retried.
+        timeout_ms = int(max(1.0, float(DEFAULT_GEMINI_REQUEST_TIMEOUT_SECONDS)) * 1000)
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=timeout_ms),
+        )
 
         fn_decls = [
             types.FunctionDeclaration(
@@ -818,7 +888,8 @@ class ProviderRunner:
 
         if not enable_tools:
             self._t("[gemini] request")
-            resp = client.models.generate_content(
+            resp = self._gemini_generate(
+                client,
                 model=self.model,
                 contents=contents,
                 config=types.GenerateContentConfig(
@@ -838,7 +909,8 @@ class ProviderRunner:
 
         while True:
             self._t("[gemini] request")
-            resp = client.models.generate_content(
+            resp = self._gemini_generate(
+                client,
                 model=self.model,
                 contents=contents,
                 config=config,
@@ -881,7 +953,8 @@ class ProviderRunner:
             if _is_tool_phase_done_text(text):
                 self._t("[gemini] tool phase complete")
                 contents.append(types.UserContent(parts=[types.Part.from_text(text=FINAL_JSON_PROMPT)]))
-                final_resp = client.models.generate_content(
+                final_resp = self._gemini_generate(
+                    client,
                     model=self.model,
                     contents=contents,
                     config=types.GenerateContentConfig(

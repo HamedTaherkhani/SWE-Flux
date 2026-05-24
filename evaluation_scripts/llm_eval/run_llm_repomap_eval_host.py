@@ -82,9 +82,24 @@ def dump_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def select_instances(repo_instances_dir: Path, num_instances: str) -> List[str]:
+def select_instances(
+    repo_instances_dir: Path,
+    num_instances: str,
+    only_instances: Optional[Sequence[str]] = None,
+) -> List[str]:
     qfiles = sorted(repo_instances_dir.glob("*/question.json"))
     instance_ids = [p.parent.name for p in qfiles]
+    if only_instances:
+        wanted = list(only_instances)
+        available = set(instance_ids)
+        missing = [iid for iid in wanted if iid not in available]
+        if missing:
+            raise SystemExit(
+                f"Requested task instance(s) not found under {repo_instances_dir}: {', '.join(missing)}"
+            )
+        # Preserve the on-disk ordering while restricting to the requested ids.
+        wanted_set = set(wanted)
+        return [iid for iid in instance_ids if iid in wanted_set]
     if num_instances == "all":
         return instance_ids
     limit = int(num_instances)
@@ -497,6 +512,24 @@ def _type_label(x: Any) -> str:
     return type(x).__name__
 
 
+def _spec_container_kind(token: str) -> Optional[str]:
+    """Recognize the outer container of a type-spec DSL string.
+
+    Templates may describe shapes like 'list[{file: str, func: str, line: int}]',
+    'list[int]', 'tuple[int, int]' or 'dict[str, object]'. Only unambiguous specs
+    (no top-level union '|') are classified so a JSON string answer can be parsed
+    back into a real list/dict instead of being kept/coerced as a string.
+    """
+    t = (token or "").strip().lower()
+    if not t or "|" in t:
+        return None
+    if re.match(r"^(list|array|sequence|tuple)\s*\[", t):
+        return "list"
+    if re.match(r"^(dict|mapping)\s*\[", t):
+        return "dict"
+    return None
+
+
 def validate_against_template(answer: Any, template: Any, path: str = "$") -> List[str]:
     errors: List[str] = []
 
@@ -522,6 +555,11 @@ def validate_against_template(answer: Any, template: Any, path: str = "$") -> Li
 
     if isinstance(template, str):
         token = template.strip().lower()
+        container_kind = _spec_container_kind(token)
+        if container_kind == "list":
+            return [] if isinstance(answer, list) else [f"{path}: expected list, got {_type_label(answer)}"]
+        if container_kind == "dict":
+            return [] if isinstance(answer, dict) else [f"{path}: expected dict, got {_type_label(answer)}"]
         if token in {"int", "integer"} and not (isinstance(answer, int) and not isinstance(answer, bool)):
             return [f"{path}: expected int, got {_type_label(answer)}"]
         if token in {"float", "number"} and not (
@@ -695,7 +733,13 @@ def _template_kind(template: Any) -> Optional[str]:
             return "list"
         if token in {"dict", "object"}:
             return "dict"
-        return "str"
+        container_kind = _spec_container_kind(token)
+        if container_kind is not None:
+            return container_kind
+        # Unrecognized/descriptive or union specs (e.g. 'null | list', 'str_or_null',
+        # 'yes_or_no', '<value>'): leave the model's native JSON value untouched rather
+        # than force-stringify it, which previously turned lists/dicts/null into strings.
+        return None
     if isinstance(template, bool):
         return "bool"
     if isinstance(template, int):
@@ -1373,8 +1417,9 @@ def run_repo(
     resume: bool,
     resume_skip_errors: bool,
     num_threads: int,
+    only_instances: Optional[Sequence[str]] = None,
 ) -> None:
-    selected_ids = select_instances(instances_dir, num_instances)
+    selected_ids = select_instances(instances_dir, num_instances, only_instances)
     if not selected_ids:
         print(f"[{repo_name}] Skipping: no instances selected")
         return
@@ -1527,6 +1572,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--model", required=True)
     p.add_argument("--repo", default="all", help="Repo name under qa_instances_eval, or all")
+    p.add_argument(
+        "--task-ids",
+        nargs="+",
+        default=None,
+        help=(
+            "Run only specific instances. Each task id is '<repo>/<instance_id>' "
+            "(e.g. Keras/optimizers_adam_v_vs_m2_invariant). May be repeated/space-separated. "
+            "Overrides --repo and --num-instances selection."
+        ),
+    )
     p.add_argument("--instances-root", default=str(REPO_ROOT / "qa_instances_eval"))
     p.add_argument("--output-root", default=str(REPO_ROOT / "evaluations"))
     p.add_argument("--num-instances", default="all", help="'all' or integer")
@@ -1634,7 +1689,40 @@ def main() -> int:
         raise SystemExit(f"Instances root not found: {instances_root}")
 
     repo_dirs = sorted(p.name for p in instances_root.iterdir() if p.is_dir())
-    if args.repo == "all":
+
+    # Optional: restrict to specific instances via --task-ids ("<repo>/<instance>").
+    task_filter: Dict[str, List[str]] = {}
+    if args.task_ids:
+        for raw in args.task_ids:
+            for token in str(raw).split(","):
+                token = token.strip().strip("/")
+                if not token:
+                    continue
+                if "/" not in token:
+                    raise SystemExit(
+                        f"--task-ids entry must be '<repo>/<instance_id>', got: {token!r}"
+                    )
+                repo_name, instance_id = token.split("/", 1)
+                repo_name = repo_name.strip()
+                instance_id = instance_id.strip().strip("/")
+                if not repo_name or not instance_id:
+                    raise SystemExit(
+                        f"--task-ids entry must be '<repo>/<instance_id>', got: {token!r}"
+                    )
+                task_filter.setdefault(repo_name, [])
+                if instance_id not in task_filter[repo_name]:
+                    task_filter[repo_name].append(instance_id)
+
+    if task_filter:
+        missing_repos = [r for r in task_filter if r not in repo_dirs]
+        if missing_repos:
+            raise SystemExit(
+                f"Repo(s) {missing_repos} from --task-ids not found in {instances_root}. Available: {repo_dirs}"
+            )
+        if args.repo != "all" and (len(task_filter) != 1 or args.repo not in task_filter):
+            raise SystemExit("--repo conflicts with --task-ids; omit --repo or keep them consistent")
+        target_repos = sorted(task_filter.keys())
+    elif args.repo == "all":
         target_repos = repo_dirs
     else:
         if args.repo not in repo_dirs:
@@ -1772,6 +1860,7 @@ def main() -> int:
                 resume=args.resume,
                 resume_skip_errors=args.resume_skip_errors,
                 num_threads=args.num_threads,
+                only_instances=task_filter.get(repo_name),
             )
     finally:
         if args.cleanup_mounted_repos and mounted_to_cleanup:

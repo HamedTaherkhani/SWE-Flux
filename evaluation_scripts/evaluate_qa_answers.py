@@ -597,6 +597,32 @@ def write_excel(
         ws_avg.cell(row=i, column=9, value=g["invalid_pred"])
     autosize(ws_avg)
 
+    # PerToolModelPerKind — per question kind, aggregated across all repos for each (tool, vendor, model)
+    ws_tmk = wb.create_sheet("PerToolModelPerKind")
+    headers = [
+        "tool", "vendor", "model", "question_kind",
+        "total", "correct", "accuracy_pct",
+    ]
+    for col, h in enumerate(headers, start=1):
+        ws_tmk.cell(row=1, column=col, value=h).font = bold
+    per_tool_model_kind: Dict[Tuple[str, str, str, str], Dict[str, int]] = {}
+    for target, stats in results:
+        for kind, k_total in stats.per_kind_total.items():
+            key = (target.tool, target.vendor or "", target.model, kind)
+            g = per_tool_model_kind.setdefault(key, {"total": 0, "correct": 0})
+            g["total"] += k_total
+            g["correct"] += stats.per_kind_correct.get(kind, 0)
+    for row, (key, g) in enumerate(sorted(per_tool_model_kind.items()), start=2):
+        tool, vendor_name, model, kind = key
+        ws_tmk.cell(row=row, column=1, value=tool)
+        ws_tmk.cell(row=row, column=2, value=vendor_name)
+        ws_tmk.cell(row=row, column=3, value=model)
+        ws_tmk.cell(row=row, column=4, value=kind)
+        ws_tmk.cell(row=row, column=5, value=g["total"])
+        ws_tmk.cell(row=row, column=6, value=g["correct"])
+        ws_tmk.cell(row=row, column=7, value=round(pct(g["correct"], g["total"]), 2))
+    autosize(ws_tmk)
+
     # PerKind (aggregate by tool, so all LLM vendors/models stay together)
     ws3 = wb.create_sheet("PerKind")
     headers = ["tool", "question_kind", "total", "correct", "accuracy_pct"]
