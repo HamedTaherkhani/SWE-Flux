@@ -1361,6 +1361,105 @@ def materialize_repo_snapshot(
     return dest, True
 
 
+def _repo_snapshot_url(spec: Dict[str, Any]) -> str:
+    for key in ("github_url", "repo_url", "url", "clone_url"):
+        value = str(spec.get(key, "") or "").strip()
+        if value:
+            return value
+    raise RuntimeError("repo snapshot entry is missing github_url/repo_url/url")
+
+
+def _repo_snapshot_commit(spec: Dict[str, Any]) -> str:
+    for key in ("hash_commit", "base_commit", "commit", "commit_hash", "sha"):
+        value = str(spec.get(key, "") or "").strip()
+        if value:
+            return value
+    raise RuntimeError("repo snapshot entry is missing hash_commit/base_commit/commit")
+
+
+def load_repo_snapshot_specs(path: Path) -> Dict[str, Dict[str, str]]:
+    data = load_json(path)
+    if not isinstance(data, dict):
+        raise SystemExit(f"--repo-snapshots-file must be a JSON object (repo->snapshot): {path}")
+
+    specs: Dict[str, Dict[str, str]] = {}
+    for repo_name, raw_spec in data.items():
+        if not isinstance(raw_spec, dict):
+            raise SystemExit(
+                f"--repo-snapshots-file entry for {repo_name!r} must be an object with github_url and hash_commit"
+            )
+        try:
+            github_url = _repo_snapshot_url(raw_spec)
+            hash_commit = _repo_snapshot_commit(raw_spec)
+        except RuntimeError as exc:
+            raise SystemExit(f"Invalid --repo-snapshots-file entry for {repo_name!r}: {exc}") from exc
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", hash_commit):
+            raise SystemExit(
+                f"Invalid --repo-snapshots-file entry for {repo_name!r}: "
+                f"hash_commit must be a full 40-character git SHA"
+            )
+        specs[str(repo_name)] = {
+            "github_url": github_url,
+            "hash_commit": hash_commit.lower(),
+        }
+    return specs
+
+
+def materialize_repo_snapshot_from_git(
+    *,
+    repo_name: str,
+    snapshot_spec: Dict[str, str],
+    mount_root: Path,
+    refresh: bool,
+) -> Tuple[Path, bool]:
+    if shutil.which("git") is None:
+        raise RuntimeError("git is required for snapshot materialization but is not available")
+
+    github_url = _repo_snapshot_url(snapshot_spec)
+    hash_commit = _repo_snapshot_commit(snapshot_spec).lower()
+    mount_root = mount_root.resolve()
+    dest = mount_root / repo_name
+    if dest.exists() and any(dest.iterdir()) and not refresh:
+        print(f"[{repo_name}] Using existing mounted snapshot: {dest}")
+        return dest, False
+
+    mount_root.mkdir(parents=True, exist_ok=True)
+    tmp_dest = mount_root / f".{sanitize_name(repo_name)}.git-clone-{os.getpid()}"
+    if tmp_dest.exists():
+        shutil.rmtree(tmp_dest)
+
+    print(f"[{repo_name}] Materializing git snapshot {hash_commit} from {github_url} -> {dest}")
+    try:
+        try:
+            run_checked(["git", "clone", "--filter=blob:none", "--no-checkout", github_url, str(tmp_dest)])
+        except subprocess.CalledProcessError:
+            if tmp_dest.exists():
+                shutil.rmtree(tmp_dest)
+            run_checked(["git", "clone", "--no-checkout", github_url, str(tmp_dest)])
+
+        run_checked(["git", "-C", str(tmp_dest), "fetch", "--depth=1", "origin", hash_commit])
+        run_checked(["git", "-C", str(tmp_dest), "checkout", "--detach", hash_commit])
+        run_checked(["git", "-C", str(tmp_dest), "submodule", "update", "--init", "--recursive"])
+        actual = run_checked(["git", "-C", str(tmp_dest), "rev-parse", "HEAD"], capture=True).stdout.strip()
+        if actual.lower() != hash_commit:
+            raise RuntimeError(
+                f"git checkout produced {actual}, expected {hash_commit}"
+            )
+
+        if dest.exists():
+            shutil.rmtree(dest)
+        tmp_dest.replace(dest)
+    except Exception:
+        if tmp_dest.exists():
+            shutil.rmtree(tmp_dest)
+        raise
+
+    if not any(dest.iterdir()):
+        raise RuntimeError(f"Git snapshot materialization produced empty directory: {dest}")
+
+    return dest, True
+
+
 def resolve_repo_root(
     *,
     repo_name: str,
@@ -1599,10 +1698,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Repo->container-image mapping for snapshot materialization",
     )
     p.add_argument(
+        "--repo-snapshots-file",
+        default=str(REPO_ROOT / "RepoSnapshots.json"),
+        help="Repo->GitHub URL and hash_commit mapping used when --container-runtime is none",
+    )
+    p.add_argument(
         "--container-runtime",
-        choices=list(CONTAINER_RUNTIME_CHOICES),
         default="docker",
-        help="Container runtime used for snapshot materialization",
+        help=(
+            "Snapshot materialization backend: docker, apptainer, or none/None/null "
+            "to git clone and checkout --repo-snapshots-file commits"
+        ),
     )
     p.add_argument(
         "--mount-root",
@@ -1613,12 +1719,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--materialize-missing-from-image",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="If repo root is missing, copy repo snapshot from container image into --mount-root",
+        help="If repo root is missing, materialize the repo snapshot into --mount-root",
     )
     p.add_argument(
         "--refresh-mounted-repos",
         action="store_true",
-        help="Re-copy snapshots from image even if mounted repo folder already exists",
+        help="Re-materialize snapshots even if mounted repo folder already exists",
     )
     p.add_argument(
         "--cleanup-mounted-repos",
@@ -1665,6 +1771,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print full LLM/tool interaction trace to console",
     )
     return p
+
+
+def normalize_container_runtime_name(raw: Optional[str]) -> Optional[str]:
+    normalized = str(raw or "").strip().lower()
+    if normalized in {"", "none", "null"}:
+        return None
+    if normalized not in CONTAINER_RUNTIME_CHOICES:
+        raise SystemExit(
+            f"Unsupported container runtime '{raw}'. Supported: "
+            f"{', '.join(CONTAINER_RUNTIME_CHOICES)}, none"
+        )
+    return normalized
 
 
 def main() -> int:
@@ -1739,21 +1857,32 @@ def main() -> int:
             raise SystemExit("--repo-roots-file must contain a JSON object {repo: path}")
         repo_roots_map = {str(k): str(v) for k, v in mapping.items()}
 
+    container_runtime_name = normalize_container_runtime_name(args.container_runtime)
+
     repos_images: Dict[str, str] = {}
+    repo_snapshot_specs: Dict[str, Dict[str, str]] = {}
     if args.materialize_missing_from_image:
-        repos_file = Path(args.repos_file).resolve()
-        if not repos_file.exists():
-            raise SystemExit(f"--repos-file not found: {repos_file}")
-        data = load_json(repos_file)
-        if not isinstance(data, dict):
-            raise SystemExit(f"--repos-file must be a JSON object (repo->image): {repos_file}")
-        repos_images = {str(k): str(v) for k, v in data.items()}
+        if container_runtime_name is None:
+            repo_snapshots_file = Path(args.repo_snapshots_file).resolve()
+            if not repo_snapshots_file.exists():
+                raise SystemExit(f"--repo-snapshots-file not found: {repo_snapshots_file}")
+            repo_snapshot_specs = load_repo_snapshot_specs(repo_snapshots_file)
+        else:
+            repos_file = Path(args.repos_file).resolve()
+            if not repos_file.exists():
+                raise SystemExit(f"--repos-file not found: {repos_file}")
+            data = load_json(repos_file)
+            if not isinstance(data, dict):
+                raise SystemExit(f"--repos-file must be a JSON object (repo->image): {repos_file}")
+            repos_images = {str(k): str(v) for k, v in data.items()}
 
     model_segment = output_model_segment(args.provider, args.model)
     out_model_root = Path(args.output_root).resolve() / "llm" / args.provider / model_segment
     out_model_root.mkdir(parents=True, exist_ok=True)
     mount_root = Path(args.mount_root).resolve()
-    container_runtime = build_container_runtime(args.container_runtime)
+    container_runtime = (
+        None if container_runtime_name is None else build_container_runtime(container_runtime_name)
+    )
 
     print(f"Provider:            {args.provider}")
     print(f"Model:               {args.model}")
@@ -1762,7 +1891,8 @@ def main() -> int:
     print(f"Instances root:      {instances_root}")
     print(f"Repo root base:      {Path(args.repo_root_base).resolve()}")
     print(f"Mount root:          {mount_root}")
-    print(f"Container runtime:   {container_runtime.name}")
+    print(f"Container runtime:   {container_runtime.name if container_runtime else 'none'}")
+    print(f"Snapshot source:     {'git clone' if container_runtime is None else 'container image'}")
     print(f"Repo map mode:       {args.repo_map_mode}")
     if args.repo_map_mode == "cheap_repomap":
         print(f"Cheap map max files: {args.cheap_repomap_max_files}")
@@ -1771,6 +1901,33 @@ def main() -> int:
     print()
 
     mounted_to_cleanup: List[Path] = []
+
+    def materialize_repo_for_eval(repo_name: str, instances_dir: Path) -> Tuple[Path, bool]:
+        if container_runtime is None:
+            snapshot_spec = repo_snapshot_specs.get(repo_name)
+            if not snapshot_spec:
+                raise RuntimeError(
+                    f"missing git snapshot mapping in {args.repo_snapshots_file}"
+                )
+            return materialize_repo_snapshot_from_git(
+                repo_name=repo_name,
+                snapshot_spec=snapshot_spec,
+                mount_root=mount_root,
+                refresh=args.refresh_mounted_repos,
+            )
+
+        image = repos_images.get(repo_name)
+        if not image:
+            raise RuntimeError(f"missing image mapping in {args.repos_file}")
+        return materialize_repo_snapshot(
+            repo_name=repo_name,
+            image=image,
+            repo_instances_dir=instances_dir,
+            mount_root=mount_root,
+            refresh=args.refresh_mounted_repos,
+            container_runtime=container_runtime,
+        )
+
     try:
         for repo_name in target_repos:
             instances_dir = instances_root / repo_name
@@ -1783,23 +1940,16 @@ def main() -> int:
 
             # Default behavior: use .tmp mount root by repo name when no explicit/mapped repo root.
             if not explicit_repo_root and not mapped_repo_root:
-                if default_mount_repo_root.exists() and any(default_mount_repo_root.iterdir()):
+                if (
+                    default_mount_repo_root.exists()
+                    and any(default_mount_repo_root.iterdir())
+                    and not args.refresh_mounted_repos
+                ):
                     repo_root = default_mount_repo_root
                     print(f"[{repo_name}] Using default mounted repo root: {repo_root}")
                 elif args.materialize_missing_from_image:
-                    image = repos_images.get(repo_name)
-                    if not image:
-                        print(f"[{repo_name}] Skipping: missing image mapping in {args.repos_file}")
-                        continue
                     try:
-                        repo_root, created_now = materialize_repo_snapshot(
-                            repo_name=repo_name,
-                            image=image,
-                            repo_instances_dir=instances_dir,
-                            mount_root=mount_root,
-                            refresh=args.refresh_mounted_repos,
-                            container_runtime=container_runtime,
-                        )
+                        repo_root, created_now = materialize_repo_for_eval(repo_name, instances_dir)
                         if created_now:
                             mounted_to_cleanup.append(repo_root)
                     except Exception as mount_exc:
@@ -1824,19 +1974,8 @@ def main() -> int:
                     if not args.materialize_missing_from_image:
                         print(f"[{repo_name}] Skipping: {exc}")
                         continue
-                    image = repos_images.get(repo_name)
-                    if not image:
-                        print(f"[{repo_name}] Skipping: missing image mapping in {args.repos_file}")
-                        continue
                     try:
-                        repo_root, created_now = materialize_repo_snapshot(
-                            repo_name=repo_name,
-                            image=image,
-                            repo_instances_dir=instances_dir,
-                            mount_root=mount_root,
-                            refresh=args.refresh_mounted_repos,
-                            container_runtime=container_runtime,
-                        )
+                        repo_root, created_now = materialize_repo_for_eval(repo_name, instances_dir)
                         if created_now:
                             mounted_to_cleanup.append(repo_root)
                     except Exception as mount_exc:

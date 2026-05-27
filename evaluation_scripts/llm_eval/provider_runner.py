@@ -236,7 +236,7 @@ class ProviderRunner:
 
         if "gpt-oss-20b" in normalized:
             return max(1, int(DEFAULT_GPT_OSS_20B_REQUEST_CAP))
-        if "gemma-4-31b-it" in normalized or "local-vllm" in normalized:
+        if "gemma-4" in normalized or "local-vllm" in normalized:
             return max(1, int(DEFAULT_GEMMA_4_31B_REQUEST_CAP))
         if "gemini-3.1-pro-preview" in normalized:
             return max(1, int(DEFAULT_GEMINI_31_PRO_PREVIEW_REQUEST_CAP))
