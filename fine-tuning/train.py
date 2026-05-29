@@ -37,6 +37,12 @@ from pathlib import Path
 # Make the finetune package importable regardless of working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Unsloth must be imported before transformers/trl for its monkeypatches to
+# take effect. Do it here, gated on the CLI flag, so the default path never
+# pulls in Unsloth.
+if "--use-unsloth" in sys.argv:
+    import unsloth  # noqa: F401
+
 from finetune.config import parse_train_args
 from finetune.data import build_dataset, dataset_stats
 from finetune.model import load_model_and_tokenizer, load_tokenizer
@@ -72,14 +78,26 @@ def main() -> None:
     )
     logger.info("  Max seq length   : %d tokens", cfg.data.max_seq_length)
     logger.info("  Optimizer        : %s  lr=%g", cfg.optim, cfg.learning_rate)
+    logger.info("  Backend          : %s", "Unsloth FastModel" if cfg.use_unsloth else "transformers + bnb + PEFT")
     logger.info("  Merge after      : %s", cfg.merge_after_training)
     logger.info("=" * 64)
 
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Step 1: tokenizer ────────────────────────────────────────────────────
-    logger.info("[1/4] Loading tokenizer from %s ...", cfg.model_path)
-    tokenizer = load_tokenizer(cfg.model_path)
+    # ── Step 1: tokenizer (and model, on the Unsloth path) ───────────────────
+    # Unsloth loads the model and tokenizer together; reuse its tokenizer for
+    # dataset formatting so a single tokenizer drives chat-templating, the
+    # collator's boundary discovery, and the model.
+    model = None
+    if cfg.use_unsloth:
+        logger.info("[1/4] Loading model + tokenizer via Unsloth FastModel from %s ...", cfg.model_path)
+        from finetune.unsloth_model import load_model_and_tokenizer_unsloth
+        model, tokenizer = load_model_and_tokenizer_unsloth(
+            cfg.model_path, cfg.lora, cfg.quant, cfg.data.max_seq_length
+        )
+    else:
+        logger.info("[1/4] Loading tokenizer from %s ...", cfg.model_path)
+        tokenizer = load_tokenizer(cfg.model_path)
 
     # ── Step 2: dataset ──────────────────────────────────────────────────────
     logger.info("[2/4] Building and formatting dataset ...")
@@ -87,8 +105,11 @@ def main() -> None:
     dataset_stats(dataset, tokenizer, cfg.data.max_seq_length)
 
     # ── Step 3: model ────────────────────────────────────────────────────────
-    logger.info("[3/4] Loading model with QLoRA ...")
-    model, _ = load_model_and_tokenizer(cfg.model_path, cfg.lora, cfg.quant)
+    if model is None:
+        logger.info("[3/4] Loading model with QLoRA ...")
+        model, _ = load_model_and_tokenizer(cfg.model_path, cfg.lora, cfg.quant)
+    else:
+        logger.info("[3/4] Model already loaded via Unsloth.")
 
     # ── Step 4: train ────────────────────────────────────────────────────────
     logger.info("[4/4] Building trainer and starting training ...")

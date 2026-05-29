@@ -257,7 +257,10 @@ def _build_sft_config(cfg: TrainingConfig, has_eval: bool = False) -> SFTConfig:
         bf16=True,
         tf32=True,
 
-        # Memory — gradient checkpointing is essential for long sequences
+        # Memory — gradient checkpointing is essential for long sequences.
+        # On the Unsloth path this is configured at get_peft_model time
+        # (use_gradient_checkpointing="unsloth"); enabling it again here would
+        # double-wrap the model, so it is dropped below when cfg.use_unsloth.
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
 
@@ -287,6 +290,11 @@ def _build_sft_config(cfg: TrainingConfig, has_eval: bool = False) -> SFTConfig:
         dataset_text_field="text",
         packing=False,   # packing would interleave conversations — keep them separate
     )
+    if cfg.use_unsloth:
+        # Unsloth owns gradient checkpointing; let it manage the wrapping.
+        kwargs.pop("gradient_checkpointing", None)
+        kwargs.pop("gradient_checkpointing_kwargs", None)
+
     sft_params = inspect.signature(SFTConfig.__init__).parameters
     length_param = (
         "max_seq_length"

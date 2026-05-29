@@ -88,9 +88,10 @@ Useful flags:
 | Flag | Default | Notes |
 |---|---|---|
 | `--lora-r` / `--lora-alpha` | 16 / 32 | keep ratio 2 |
-| `--max-seq-length` | 16384 | **For Gemma 4 4B on this stack, use 8192 or 12288.** See "Known footguns". |
+| `--max-seq-length` | 16384 | **For Gemma 4 4B on this stack, use 8192 or 12288.** See "Known footguns". With `--use-unsloth` you can push this much higher on an H100. |
 | `--repos` | all | restrict to a subset |
 | `--merge-after-training` | off | also write a bf16 merged model for vLLM |
+| `--use-unsloth` | off | load the model + LoRA via Unsloth FastModel for a larger context window. See "Unsloth backend". |
 
 After training, `<output-dir>/` contains `adapter_config.json` +
 `adapter_model.safetensors`. With `--merge-after-training`, a full bf16 model
@@ -173,6 +174,49 @@ python fine-tuning/merge.py \
 Runs in bf16, single GPU; no training needed.
 
 ---
+
+## Unsloth backend (longer context on H100)
+
+`--use-unsloth` swaps the model-loading and LoRA-application layer from
+transformers + bitsandbytes + PEFT to [Unsloth](https://unsloth.ai/docs)'s
+`FastModel` API. Unsloth's fused kernels and offloaded ("unsloth") gradient
+checkpointing fit a substantially longer context window on the same GPU — the
+motivation here is training gemma4-4b at high `--max-seq-length` on an H100.
+
+Everything else is unchanged: the dataset, chat-template / tool-call wire
+format, the assistant-turn loss mask, the hyperparameters, and the TRL
+`SFTTrainer`. The default path (no flag) behaves exactly as before.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python fine-tuning/train.py \
+  --model /path/to/gemma4-4b \
+  --output-dir /scratch/runs/gemma4-r64-unsloth \
+  --use-unsloth \
+  --batch-size 1 --grad-accum 32 \
+  --max-seq-length 32768 \
+  --epochs 2 --logging-steps 1
+```
+
+Unsloth is pinned in `environment.yml` (`unsloth==2026.5.8`). This release caps
+`transformers<=5.5.0` and needs `trl>=0.18.2` / `bitsandbytes>=0.45.5`, which is
+why those pins are set as they are. To add it to an existing env:
+
+```bash
+pip install unsloth==2026.5.8
+```
+
+Notes:
+
+- `FORCE_ATTN_IMPL` does not apply — Unsloth selects its own attention kernels.
+- The resulting adapter is a standard PEFT adapter, so `merge.py` /
+  `--merge-after-training` work unchanged.
+- LoRA is scoped to the language tower via `finetune_vision_layers=False`
+  (the equivalent of the default path's `language_model.*` regex).
+- The `num_kv_shared_layers=0` vLLM-compatibility override is forwarded to
+  `FastModel.from_pretrained`; if your Unsloth build rejects the `config`
+  kwarg, training logs a loud warning — verify serving coherence before
+  trusting that run.
+- Other models (e.g. Qwen) train through the same flag with no special-casing.
 
 ## Known footguns (Gemma 4 4B specifically)
 

@@ -32,6 +32,33 @@ _DTYPE_MAP: dict[str, torch.dtype] = {
 }
 
 
+def _resolve_base_dir(base_model: str) -> Path | None:
+    """
+    Return a local directory containing the base model's files.
+
+    Accepts either a local path or a HuggingFace ID (e.g. google/gemma-4-E4B).
+    For an ID we resolve the cached snapshot via snapshot_download — the files
+    are already on disk from from_pretrained, so this returns the cache path
+    without re-downloading. The merge's missing-K/V-tensor patch and the
+    completeness verification both glob this directory; without it (bare ID),
+    they silently skip and can emit an incomplete model vLLM won't load.
+    """
+    p = Path(base_model)
+    if p.is_dir():
+        return p
+    try:
+        from huggingface_hub import snapshot_download
+        return Path(snapshot_download(base_model))
+    except Exception as exc:
+        logger.warning(
+            "Could not resolve a local directory for base model %r (%s). The "
+            "Gemma missing-tensor patch and merge verification will be skipped; "
+            "verify the merged model loads under vLLM.",
+            base_model, exc,
+        )
+        return None
+
+
 def _write_preprocessor_config(base_dir: Path, output_dir: Path) -> None:
     """
     vLLM's HF renderer for Gemma 4 calls AutoFeatureExtractor / AutoImageProcessor
@@ -91,6 +118,10 @@ def merge_adapter(
     torch_dtype = _DTYPE_MAP.get(dtype, torch.bfloat16)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Resolve a local directory for the base (handles bare HF IDs like
+    # google/gemma-4-E4B) so the tensor-patch and verification below can run.
+    base_dir = _resolve_base_dir(base_model)
+
     # Load base in full precision (not quantized — we need exact float weights
     # for the merge arithmetic to be correct).
     #
@@ -138,9 +169,8 @@ def merge_adapter(
     # tensor present in the base but missing after the merge is something
     # transformers dropped — copy it back from base verbatim.
     from safetensors import safe_open as _safe_open
-    base_dir = Path(base_model)
     base_keys: set[str] = set()
-    if base_dir.is_dir():
+    if base_dir is not None and base_dir.is_dir():
         patched = 0
         for sf in sorted(base_dir.glob("*.safetensors")):
             with _safe_open(str(sf), framework="pt") as h:
@@ -205,7 +235,8 @@ def merge_adapter(
     # separate preprocessor_config.json, which vLLM's HF renderer demands.
     # Extract the image_processor sub-dict from the base's processor_config.json
     # and write it as preprocessor_config.json in the merged dir.
-    _write_preprocessor_config(Path(base_model), output_dir)
+    if base_dir is not None:
+        _write_preprocessor_config(base_dir, output_dir)
 
     logger.info("Merge complete.  Merged model: %s", output_dir)
     logger.info(

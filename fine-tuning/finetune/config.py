@@ -28,10 +28,27 @@ GEMMA4_4B_TARGET_MODULES: str = (
 )
 
 
+def _is_multimodal_gemma(model_path: str) -> bool:
+    """
+    True for the multimodal Gemma family that needs language-tower-scoped LoRA.
+
+    Covers the local checkpoint dir name (`gemma4-4b`) and the HuggingFace IDs
+    that use the "E2B"/"E4B" effective-size naming (e.g. `google/gemma-4-E4B`,
+    `google/gemma-3n-E4B`). These wrap their vision/audio projections so a plain
+    suffix match would attach LoRA to the vision tower — see GEMMA4_4B_TARGET_MODULES.
+    """
+    name = Path(model_path).name.lower()
+    if name == "gemma4-4b" or "gemma4" in name:
+        return True
+    if "gemma" in name and ("gemma-4" in name or "gemma-3n" in name):
+        return True
+    # E2B/E4B effective-size suffix is unique to the multimodal Gemma line.
+    return "gemma" in name and ("e4b" in name or "e2b" in name)
+
+
 def _default_target_modules_for_model(model_path: str):
     """Return target_modules for PEFT — either a list (suffix match) or a regex string."""
-    model_name = Path(model_path).name.lower()
-    if model_name == "gemma4-4b":
+    if _is_multimodal_gemma(model_path):
         return GEMMA4_4B_TARGET_MODULES  # regex string, must NOT be wrapped in list()
     return list(_DEFAULT_TARGET_MODULES)
 
@@ -98,6 +115,14 @@ class TrainingConfig:
     # --- Post-training merge ---
     merge_after_training: bool = False
     merged_output_dir: Optional[Path] = None
+
+    # --- Backend ---
+    # When True, load the model and apply LoRA through Unsloth's FastModel
+    # instead of the transformers + bitsandbytes + PEFT stack. Unsloth's fused
+    # kernels and "unsloth" gradient checkpointing fit a much longer context
+    # window on the same GPU (the point of this path on H100). The dataset,
+    # collator, loss masking, and SFTTrainer are unchanged.
+    use_unsloth: bool = False
 
 
 @dataclass
@@ -196,6 +221,17 @@ def parse_train_args(argv: Optional[List[str]] = None) -> TrainingConfig:
                      choices=["none", "wandb", "tensorboard"],
                      help="Experiment tracking backend")
 
+    # --- Backend ---
+    backend = parser.add_argument_group("Backend")
+    backend.add_argument(
+        "--use-unsloth", action="store_true",
+        help=(
+            "Load the model and LoRA via Unsloth FastModel instead of "
+            "transformers+bitsandbytes+PEFT. Enables a larger context window on "
+            "the same GPU. Hyperparameters and training loop are unchanged."
+        ),
+    )
+
     # --- Post-training ---
     post = parser.add_argument_group("Post-training")
     post.add_argument(
@@ -254,6 +290,7 @@ def parse_train_args(argv: Optional[List[str]] = None) -> TrainingConfig:
         report_to=args.report_to,
         merge_after_training=args.merge_after_training,
         merged_output_dir=merged_dir,
+        use_unsloth=args.use_unsloth,
     )
 
 
