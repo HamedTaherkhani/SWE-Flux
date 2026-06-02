@@ -63,6 +63,9 @@ from provider_runner import (  # noqa: E402
     TOOL_PHASE_DONE_SENTINEL,
     TOOL_PHASE_REMINDER_PROMPT,
     FINAL_JSON_PROMPT,
+    FINAL_REASONING_PROMPT,
+    ANSWER_RULES_REASONING,
+    ANSWER_SENTINEL,
 )
 from container_runtime import build_container_runtime  # noqa: E402
 from run_llm_repomap_eval_host import infer_repo_subdir_for_image  # noqa: E402
@@ -76,10 +79,19 @@ REPO_CACHE_ROOT = _SCRIPT_DIR / "sft_dataset" / "repo_cache"
 REPOSITORIES_JSON = _REPO_ROOT / "Repositories.json"
 
 MAX_TRACE_BYTES = 1 * 1024 * 1024  # 1 MB
-MAX_READ_LINES = 200
+MAX_READ_LINES = 300  # must match the eval default (--max-read-lines) so the
+                      # student's rule-4 cap and tool behavior are identical at
+                      # train and inference time. See run_llm_repomap_eval_host.py.
 MAX_TOOL_ROUNDS = 30
 DEFAULT_MODEL = "gpt-5.4"
 DEFAULT_WORKERS = 4
+
+# When True (set by --reasoning-answer in main), the teacher is instructed to
+# write a derivation, then "## Answer", then the JSON, and the student system
+# prompt + closing follow-up are switched to match. The reasoning-mode prompt
+# text is shared with the eval side via provider_runner so the two stay in
+# lockstep. Default False preserves the original bare-JSON dataset format.
+REASONING_ANSWER = False
 
 # Force sequential tool use: one call per assistant turn so each result can
 # inform the next. A 4B student can't safely batch reads it never sees results
@@ -104,11 +116,15 @@ MAX_EMPTY_CONTENT_RETRIES = 2
 # list_dir 97% of the time — we want the fine-tuned model to keep that habit.
 FIRST_CALL_REMINDER = (
     "Your previous response broke the exploration rule. The FIRST tool call "
-    "in this trajectory MUST be `list_dir`, not `read_file`. Choose a directory "
-    "you can verify (e.g. `list_dir(path=\"files\")` to see test files, or "
-    "`list_dir(path=\".\")` to discover the repository's top-level layout). "
-    "Reissue your response: begin with 1-2 SHORT sentences saying which "
-    "directory you will list and why, then a single `list_dir` call."
+    "in this trajectory MUST be `list_dir`, not `read_file`. Prefer the package "
+    "subdirectory that should contain your target module, derived from the "
+    "question's path hint (e.g. `list_dir(path=\"src/cfnlint/conditions\")` if "
+    "the question mentions `src/cfnlint/conditions/conditions.py`). This both "
+    "confirms the file exists and reveals the layout. Only if you cannot derive "
+    "such a path should you fall back to `list_dir(path=\"files\")` or "
+    "`list_dir(path=\".\")`. Reissue your response: begin with 1-2 SHORT "
+    "sentences saying which directory you will list and why, then a single "
+    "`list_dir` call."
 )
 MAX_FIRST_CALL_RETRIES = 2
 
@@ -464,6 +480,29 @@ def _make_teacher_system_prompt(oracle_answer: Any, trace_log: str = "", extra_n
     NOT saved into the student training messages.
     """
     oracle_str = json.dumps(oracle_answer, indent=2, ensure_ascii=False)
+
+    # Final-answer instruction (step 8) and the matching quality bullet differ
+    # between bare-JSON mode (original) and reasoning mode (gemma4). In reasoning
+    # mode the teacher must emit a code-grounded derivation, then the shared
+    # ANSWER_SENTINEL, then the JSON — so the student learns to derive the answer.
+    if REASONING_ANSWER:
+        _step8 = (
+            "After the follow-up prompt, FIRST write a brief code-grounded derivation "
+            "(a few sentences) explaining how the code you read determines the answer, "
+            f"THEN write '{ANSWER_SENTINEL}' on its own line, THEN the raw JSON answer "
+            "object. Put only the JSON after that line — no markdown fences, nothing after it."
+        )
+        _final_quality = (
+            f"Final answer: a brief code-grounded derivation, then '{ANSWER_SENTINEL}', "
+            "then raw JSON only (no markdown fences, nothing after the JSON)"
+        )
+    else:
+        _step8 = (
+            "After the follow-up prompt, return ONLY the raw JSON answer — no markdown,\n"
+            "   no explanations."
+        )
+        _final_quality = "Final answer: raw JSON only — no markdown, no headings, no derivation"
+
     base = f"""\
 You are an expert software engineer creating high-quality SFT training examples \
 for a smaller AI model that will learn to analyze runtime behavior of Python codebases.
@@ -503,8 +542,16 @@ path to explain.  NEVER quote a trace line.  NEVER say "the trace shows",
 
 Your written reasoning must be derived entirely from the source code you read
 via read_file.  Think of the trace as a whisper from a senior engineer that
-tells you exactly where to look — but everything you write in your messages
-must come from reading the code, not from quoting that whisper.
+tells you which FILE and FUNCTION matter — but NOT the exact line. Everything
+you write in your messages must come from reading the code, not from quoting
+that whisper.
+
+LINE NUMBERS ARE OFF-LIMITS AS A SHORTCUT.  The trace carries FILE:LINE markers,
+but the student has no trace and cannot know them.  Never let a trace line number
+choose your read_file range.  Locate code the way a reader without the trace
+must: open a file at its natural start (line 1) or at a function/class boundary
+you found by reading, and page forward in normal windows.  Do NOT jump straight
+to a narrow slice (e.g. lines 180-290) that only the trace could have revealed.
 
 ────────────────────────────────────────────────────
 CONCRETE EXAMPLES — right vs wrong
@@ -554,13 +601,21 @@ WORKFLOW
    code path executed. Use that to decide which files to read.
 
 3. EXPLORATION RULE (mandatory): your FIRST tool call MUST be `list_dir`,
-   never `read_file`. This forces you to verify the directory layout before
-   reading. Acceptable first moves:
-     • `list_dir(path="files")` — see what instance test files exist
-     • `list_dir(path=".")` — see the repository's top-level layout
-     • `list_dir(path="<dir>")` — a directory you can derive from the
-       question's path hints, e.g. `list_dir(path="src/cfnlint/context")`
-       if the question mentions `src/cfnlint/context/conditions/_utils.py`
+   never `read_file`. This forces you to confirm where the code lives before
+   reading. PREFER the most specific directory you can derive from the
+   question's path hint — it confirms the target file exists AND reveals the
+   layout in one step. Acceptable first moves, best first:
+     • `list_dir(path="<pkg-subdir>")` — the directory that should contain your
+       target module, derived from the question's path hint, e.g.
+       `list_dir(path="src/cfnlint/conditions")` if the question mentions
+       `src/cfnlint/conditions/conditions.py`. This is the preferred move.
+     • `list_dir(path="files")` — only if you must first inspect instance test
+       files to learn which module the test exercises.
+     • `list_dir(path=".")` — fallback ONLY when you cannot derive a subdir
+       from the question, or when a more specific `list_dir` came back empty /
+       unexpected and you need the top-level layout. Do not open at root by
+       reflex — root is mostly noise (.git, docs, configs); its only useful
+       signal is whether a `src/` directory exists.
 
    Repository layouts vary across projects and may differ from what the
    question text shows:
@@ -575,8 +630,18 @@ WORKFLOW
    `list_dir(path=".")`) until you have a verified top-level map. Only after
    that may you start calling `read_file`.
 
-4. Continue using `read_file` and `list_dir` to navigate from the instance
-   files (files/tests/qa/) → the called function → implementation.
+4. NAVIGATE, don't teleport. Model how an engineer who does NOT already know
+   the file's location finds it:
+     • Start from the instance test (files/tests/qa/…) and read its imports to
+       learn which modules it exercises.
+     • Use `list_dir` on the package subdirectory that should contain the target
+       module BEFORE reading it — confirm the file exists rather than guessing
+       its full path.
+     • Then `read_file` the module, opening at its start or at the function you
+       are looking for, and page forward as needed.
+   It is EXPECTED and GOOD to issue more than one `list_dir` here when the target
+   is more than one directory level deep — the student must learn to search for
+   code, not to guess exact paths and line ranges it has no way of knowing.
 
 5. REASONING BUDGET (strict): in every assistant message during exploration,
    write 1-2 SHORT sentences — say only what you will do next and why.
@@ -584,18 +649,22 @@ WORKFLOW
    restate the question or the template. Save the complete derivation for the
    FINAL JSON answer.
 
-   ✓ "I'll read `solvers.py` lines 200-400 to see the `_solve` dispatch logic."
+   ✓ "I'll open `solvers.py` from the top to find the `_solve` definition, then
+       read forward through its body."
    ✓ "The test exercises `Fn::FindInMap` six times; next I'll open the
        resolver to find each return path."
    ✗ A paragraph quoting lines you just read (truncates the budget for nothing)
    ✗ Restating the question you were just asked
 
-6. Make ONLY tool calls that are directly relevant. Avoid unnecessary files.
+6. Include the navigation steps a trace-less reader genuinely needs (locating
+   the module via `list_dir`, paging to the relevant function) — these are part
+   of the lesson, not waste. Avoid only truly irrelevant files, and NEVER re-read
+   the same file by nudging start_line one line at a time: read a useful window,
+   and once you have the code, stop and signal completion.
 
 7. When you have read all the relevant code:  {TOOL_PHASE_DONE_SENTINEL}
 
-8. After the follow-up prompt, return ONLY the raw JSON answer — no markdown,
-   no explanations.
+8. {_step8}
 
 ═══════════════════════════════════════════════════════
 QUALITY REQUIREMENTS
@@ -605,8 +674,10 @@ QUALITY REQUIREMENTS
 • Every claim about a runtime value must follow logically from source code read
 • Exploration messages: 1-2 SHORT sentences per turn (next step + why). Do
   not retype file contents or summarize what the reader can see in tool results.
-• Tool calls must represent the minimal sufficient investigation
-• Final answer: raw JSON only — no markdown, no headings, no derivation
+• Tool calls must model a realistic discovery path: locate code via `list_dir`
+  and natural-start `read_file` windows, not trace-derived line slices. Efficient,
+  but not psychic — no teleporting to exact line ranges
+• {_final_quality}
 """
     if extra_note:
         base += f"\n\nNOTE: {extra_note}"
@@ -614,20 +685,30 @@ QUALITY REQUIREMENTS
 
 
 # Student system prompt — saved into training data, matches eval-time format exactly
-# (mirrors make_system_prompt(repo_map_mode="none") from run_llm_repomap_eval_host.py)
-STUDENT_SYSTEM_PROMPT = (
-    "Solve repository QA in read-only mode with tool calls only.\n"
-    "Rules:\n"
-    "1. Use list_dir/read_file tools only (get_repo_map is disabled).\n"
-    "2. Prefer relative paths. Repo files are usually like src/...; instance files are usually files/....\n"
-    "3. Minimize unnecessary reads and repeated failed paths.\n"
-    f"4. read_file has a hard per-call limit: at most {MAX_READ_LINES} lines.\n"
-    f"5. When you are completely done using tools, reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
-    "6. Do not combine the completion signal with the final JSON answer.\n"
-    "7. After the follow-up prompt closes the tool phase, return exactly one JSON object matching "
-    "template_answer keys and value types.\n"
-    "8. Do not output markdown or explanations in the final answer."
-)
+# (mirrors make_system_prompt(repo_map_mode="none") from run_llm_repomap_eval_host.py).
+# Rules 7-8 switch to the reasoning protocol when REASONING_ANSWER is set; the
+# reasoning rules are imported from provider_runner so training and eval are
+# byte-for-byte identical.
+def make_student_system_prompt() -> str:
+    if REASONING_ANSWER:
+        answer_rules = ANSWER_RULES_REASONING
+    else:
+        answer_rules = (
+            "7. After the follow-up prompt closes the tool phase, return exactly one JSON object matching "
+            "template_answer keys and value types.\n"
+            "8. Do not output markdown or explanations in the final answer."
+        )
+    return (
+        "Solve repository QA in read-only mode with tool calls only.\n"
+        "Rules:\n"
+        "1. Use list_dir/read_file tools only (get_repo_map is disabled).\n"
+        "2. Prefer relative paths. Repo files are usually like src/...; instance files are usually files/....\n"
+        "3. Minimize unnecessary reads and repeated failed paths.\n"
+        f"4. read_file has a hard per-call limit: at most {MAX_READ_LINES} lines.\n"
+        f"5. When you are completely done using tools, reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
+        "6. Do not combine the completion signal with the final JSON answer.\n"
+        f"{answer_rules}"
+    )
 
 
 def _make_user_prompt(
@@ -665,6 +746,12 @@ def _make_user_prompt(
         preview_lines.append(f"- ... ({omitted} more files)")
     preview_str = "\n".join(preview_lines)
 
+    _phase2 = (
+        "Task phase 2: after the follow-up closes tool use, first give a brief derivation, "
+        f"then '{ANSWER_SENTINEL}' on its own line, then the final JSON answer object."
+        if REASONING_ANSWER
+        else "Task phase 2: after the follow-up closes tool use, return only the final JSON answer object."
+    )
     return (
         f"Question kind: {question_kind}\n\n"
         f"Question:\n{question}\n\n"
@@ -673,12 +760,14 @@ def _make_user_prompt(
         "repo files live at e.g. src/...):\n"
         f"{preview_str if preview_str else '- (no files)'}\n\n"
         f"Task phase 1: use tools as needed, then reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
-        "Task phase 2: after the follow-up closes tool use, return only the final JSON answer object."
+        f"{_phase2}"
     )
 
 
-# Matches FINAL_JSON_PROMPT from provider_runner.py — raw JSON, no markdown
-_STRUCTURED_FINAL_PROMPT = FINAL_JSON_PROMPT
+def _structured_final_prompt() -> str:
+    """Closing follow-up that requests the final answer. Matches the eval side
+    (FINAL_JSON_PROMPT / FINAL_REASONING_PROMPT from provider_runner)."""
+    return FINAL_REASONING_PROMPT if REASONING_ANSWER else FINAL_JSON_PROMPT
 
 # ---------------------------------------------------------------------------
 # Answer extraction and validation
@@ -983,7 +1072,7 @@ def _attempt(
         testbed_subdir=testbed_subdir,
     )
 
-    teacher_messages.append({"role": "user", "content": _STRUCTURED_FINAL_PROMPT})
+    teacher_messages.append({"role": "user", "content": _structured_final_prompt()})
 
     final_resp = _chat_final(client, model, teacher_messages)
     final_content = final_resp.choices[0].message.content or ""
@@ -1001,7 +1090,7 @@ def _attempt(
         testbed_subdir=testbed_subdir,
     )
     student_messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": STUDENT_SYSTEM_PROMPT},
+        {"role": "system", "content": make_student_system_prompt()},
         *_rewrite_assistant_tool_calls(canonicalized),
     ]
 
@@ -1220,7 +1309,22 @@ def main() -> None:
     )
     parser.add_argument("--instances", nargs="*", metavar="ID",
                         help="Specific instance IDs (only valid when --repo names a single repo)")
+    parser.add_argument(
+        "--reasoning-answer", action="store_true",
+        help=(
+            "Generate the reasoning dataset format: the teacher writes a code-grounded "
+            "derivation, then '## Answer', then the JSON (instead of bare JSON). Use this "
+            "for gemma4 models, and evaluate with --answer-format reasoning (or auto)."
+        ),
+    )
     args = parser.parse_args()
+
+    # Set the module flag the prompt builders read. Done once before any worker
+    # threads start, so it is read-only thereafter.
+    global REASONING_ANSWER
+    REASONING_ANSWER = args.reasoning_answer
+    if REASONING_ANSWER:
+        print("Answer format: reasoning (derivation + '## Answer' + JSON)")
 
     repo_names_arg = _expand_repo_cli_args(args.repo)
     if args.instances and repo_names_arg and len(repo_names_arg) != 1:

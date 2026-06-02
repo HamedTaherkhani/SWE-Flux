@@ -496,6 +496,47 @@ def extract_first_json_object(text: str) -> Optional[Any]:
     return None
 
 
+def extract_answer_for_format(text: str, answer_format: str) -> Optional[Any]:
+    """
+    Extract the final JSON answer, honoring the answer format.
+
+    For "reasoning" responses the model emits a derivation followed by
+    `## Answer` and then the JSON. The free-form derivation may itself contain
+    braces (dict-like prose, format specs, etc.), so we must NOT grab the first
+    balanced object in the whole text. Strategy:
+      1. If a `## Answer` sentinel is present, parse only the text after the LAST
+         one.
+      2. Within that region, prefer the LAST balanced {...} / [...] object.
+    Falls back to the JSON-mode extractor (first balanced object) otherwise, so
+    bare-JSON models are unaffected.
+    """
+    if answer_format != "reasoning":
+        return extract_first_json_object(text)
+
+    region = text
+    idx = text.rfind(ANSWER_SENTINEL)
+    if idx != -1:
+        region = text[idx + len(ANSWER_SENTINEL):]
+    region = region.strip()
+    region = re.sub(r"^```(?:json)?\s*", "", region, flags=re.MULTILINE)
+    region = re.sub(r"\s*```$", "", region, flags=re.MULTILINE).strip()
+
+    # Prefer the LAST balanced object in the answer region.
+    for pat in (r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", r"\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]"):
+        hits = list(re.finditer(pat, region, re.DOTALL))
+        if hits:
+            try:
+                return json.loads(hits[-1].group())
+            except json.JSONDecodeError:
+                pass
+    # Fall back to a direct parse of the region, then the generic extractor.
+    try:
+        return json.loads(region)
+    except json.JSONDecodeError:
+        pass
+    return extract_first_json_object(region if idx != -1 else text)
+
+
 def _type_label(x: Any) -> str:
     if isinstance(x, bool):
         return "bool"
@@ -818,13 +859,45 @@ def coerce_against_template(answer: Any, template: Any, path: str = "$") -> Tupl
 # ---------------------------
 
 try:
-    from .provider_runner import ProviderRunner, TOOL_PHASE_DONE_SENTINEL
+    from .provider_runner import (
+        ANSWER_RULES_REASONING,
+        ANSWER_SENTINEL,
+        FINAL_REASONING_PROMPT,
+        ProviderRunner,
+        TOOL_PHASE_DONE_SENTINEL,
+    )
     from .repo_tools import INSTANCE_PREVIEW_LIMIT, ReadOnlyRepoTools, shrink_tool_payload_for_llm
     from .container_runtime import CONTAINER_RUNTIME_CHOICES, ContainerRuntime, build_container_runtime
 except ImportError:
-    from provider_runner import ProviderRunner, TOOL_PHASE_DONE_SENTINEL
+    from provider_runner import (
+        ANSWER_RULES_REASONING,
+        ANSWER_SENTINEL,
+        FINAL_REASONING_PROMPT,
+        ProviderRunner,
+        TOOL_PHASE_DONE_SENTINEL,
+    )
     from repo_tools import INSTANCE_PREVIEW_LIMIT, ReadOnlyRepoTools, shrink_tool_payload_for_llm
     from container_runtime import CONTAINER_RUNTIME_CHOICES, ContainerRuntime, build_container_runtime
+
+
+# ---------------------------------------------------------------------------
+# Answer format (JSON vs reasoning) — reasoning is used for gemma4 models only
+# ---------------------------------------------------------------------------
+
+def resolve_answer_format(answer_format: str, model: str) -> str:
+    """
+    Resolve the --answer-format choice to a concrete format.
+
+    "auto" → "reasoning" for gemma4 models (trained to derive the answer before
+    emitting JSON), "json" for everything else. This keeps every non-gemma4
+    model on the exact original protocol.
+    """
+    if answer_format != "auto":
+        return answer_format
+    name = (model or "").lower()
+    if "gemma4" in name or "gemma-4" in name:
+        return "reasoning"
+    return "json"
 
 REASONING_TRACE_EVENTS_LIMIT = int(os.environ.get("REPOBEHAVE_REASONING_TRACE_EVENTS_LIMIT", "80"))
 REASONING_TRACE_TEXT_MAX_CHARS = int(os.environ.get("REPOBEHAVE_REASONING_TRACE_MAX_CHARS", "18000"))
@@ -835,12 +908,24 @@ REASONING_TRACE_TEXT_MAX_CHARS = int(os.environ.get("REPOBEHAVE_REASONING_TRACE_
 # ---------------------------
 
 
-def make_system_prompt(*, repo_map_mode: str, max_read_lines: int) -> str:
+def make_system_prompt(*, repo_map_mode: str, max_read_lines: int, answer_format: str = "json") -> str:
     first_step = (
         "Call get_repo_map first, then use list_dir/read_file only as needed."
         if repo_map_mode != "none"
         else "Use list_dir/read_file tools only (get_repo_map is disabled)."
     )
+    # Rules 7-8 differ between the bare-JSON protocol (all existing models) and
+    # the reasoning protocol (gemma4 models trained to derive then answer). The
+    # reasoning rules are imported from provider_runner so they stay identical
+    # to the training-time student prompt in create_sft_dataset.py.
+    if answer_format == "reasoning":
+        answer_rules = ANSWER_RULES_REASONING
+    else:
+        answer_rules = (
+            "7. After the follow-up prompt closes the tool phase, return exactly one JSON object matching "
+            "template_answer keys and value types.\n"
+            "8. Do not output markdown or explanations in the final answer."
+        )
     return (
         "Solve repository QA in read-only mode with tool calls only.\n"
         "Rules:\n"
@@ -850,9 +935,7 @@ def make_system_prompt(*, repo_map_mode: str, max_read_lines: int) -> str:
         f"4. read_file has a hard per-call limit: at most {max_read_lines} lines.\n"
         f"5. When you are completely done using tools, reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
         "6. Do not combine the completion signal with the final JSON answer.\n"
-        "7. After the follow-up prompt closes the tool phase, return exactly one JSON object matching "
-        "template_answer keys and value types.\n"
-        "8. Do not output markdown or explanations in the final answer."
+        f"{answer_rules}"
     )
 
 
@@ -872,6 +955,7 @@ def build_user_prompt(
     repo_root: Path,
     instance_dir: Path,
     instance_files_preview: List[str],
+    answer_format: str = "json",
 ) -> str:
     question = question_data.get("question", "")
     template_answer = question_data.get("template_answer", {})
@@ -889,6 +973,12 @@ def build_user_prompt(
     # (e.g. files/..., src/...) so the prompt is portable across hosts and
     # matches the training distribution from create_sft_dataset.py.
     _ = (repo_root, instance_dir)  # kept in signature for downstream callers
+    phase2 = (
+        "Task phase 2: after the follow-up closes tool use, first give a brief derivation, "
+        f"then '{ANSWER_SENTINEL}' on its own line, then the final JSON answer object."
+        if answer_format == "reasoning"
+        else "Task phase 2: after the follow-up closes tool use, return only the final JSON answer object."
+    )
     return (
         f"Question kind: {question_kind}\n\n"
         f"Question:\n{question}\n\n"
@@ -897,7 +987,7 @@ def build_user_prompt(
         "repo files live at e.g. src/...):\n"
         f"{preview_str if preview_str else '- (no files)'}\n\n"
         f"Task phase 1: use tools as needed, then reply with exactly {TOOL_PHASE_DONE_SENTINEL}.\n"
-        "Task phase 2: after the follow-up closes tool use, return only the final JSON answer object."
+        f"{phase2}"
     )
 
 
@@ -959,6 +1049,7 @@ def run_single_instance(
     cheap_repomap_max_files: int,
     temperature: float,
     max_repair_rounds: int,
+    answer_format: str = "json",
     trace: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     question_data = load_json(question_path)
@@ -1033,17 +1124,20 @@ def run_single_instance(
         model=model,
         temperature=temperature,
         trace=_emit_trace,
+        final_answer_prompt=(FINAL_REASONING_PROMPT if answer_format == "reasoning" else None),
     )
 
     system_prompt = make_system_prompt(
         repo_map_mode=repo_map_mode,
         max_read_lines=max_read_lines,
+        answer_format=answer_format,
     )
     user_prompt = build_user_prompt(
         question_data=question_data,
         repo_root=repo_root,
         instance_dir=instance_dir,
         instance_files_preview=instance_files,
+        answer_format=answer_format,
     )
 
     template = question_data.get("template_answer", {})
@@ -1054,7 +1148,7 @@ def run_single_instance(
         tool_names=enabled_tool_names,
     )
     _emit_trace(f"[final-raw] {raw_response}")
-    parsed = extract_first_json_object(raw_response)
+    parsed = extract_answer_for_format(raw_response, answer_format)
 
     coercion_notes: List[str] = []
 
@@ -1516,6 +1610,7 @@ def run_repo(
     resume: bool,
     resume_skip_errors: bool,
     num_threads: int,
+    answer_format: str = "json",
     only_instances: Optional[Sequence[str]] = None,
 ) -> None:
     selected_ids = select_instances(instances_dir, num_instances, only_instances)
@@ -1579,6 +1674,7 @@ def run_repo(
                 cheap_repomap_max_files=cheap_repomap_max_files,
                 temperature=temperature,
                 max_repair_rounds=max_repair_rounds,
+                answer_format=answer_format,
                 trace=_trace,
             )
             dump_json(answer_path, answer)
@@ -1670,6 +1766,17 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     p.add_argument("--model", required=True)
+    p.add_argument(
+        "--answer-format",
+        choices=["auto", "json", "reasoning"],
+        default="auto",
+        help=(
+            "Final-answer protocol. 'json' (the original) asks for a bare JSON object. "
+            "'reasoning' asks for a derivation then '## Answer' then JSON — use for gemma4 "
+            "models fine-tuned with the reasoning dataset. 'auto' (default) picks 'reasoning' "
+            "for gemma4 models and 'json' for everything else, so non-gemma4 runs are unchanged."
+        ),
+    )
     p.add_argument("--repo", default="all", help="Repo name under qa_instances_eval, or all")
     p.add_argument(
         "--task-ids",
@@ -1884,8 +1991,11 @@ def main() -> int:
         None if container_runtime_name is None else build_container_runtime(container_runtime_name)
     )
 
+    resolved_answer_format = resolve_answer_format(args.answer_format, args.model)
+
     print(f"Provider:            {args.provider}")
     print(f"Model:               {args.model}")
+    print(f"Answer format:       {resolved_answer_format} (--answer-format={args.answer_format})")
     print(f"Output root:         {out_model_root}")
     print(f"Target repos:        {' '.join(target_repos)}")
     print(f"Instances root:      {instances_root}")
@@ -1999,6 +2109,7 @@ def main() -> int:
                 resume=args.resume,
                 resume_skip_errors=args.resume_skip_errors,
                 num_threads=args.num_threads,
+                answer_format=resolved_answer_format,
                 only_instances=task_filter.get(repo_name),
             )
     finally:

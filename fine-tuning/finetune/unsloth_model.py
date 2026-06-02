@@ -22,15 +22,70 @@ function with no special-casing — pass --model and --use-unsloth.
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import logging
-from typing import Any, List, Tuple
+from typing import Any, Iterator, List, Tuple
 
 import torch
 
 from .config import LoraConfig, QuantizationConfig
-from .model import _DTYPE_MAP, _override_kv_sharing, load_tokenizer
+from .model import _DTYPE_MAP, load_tokenizer
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _force_no_kv_sharing() -> Iterator[None]:
+    """
+    Force num_kv_shared_layers=0 on every config loaded inside this block.
+
+    Unsloth's FastModel.from_pretrained doesn't accept a `config=` override, so
+    we patch transformers.AutoConfig.from_pretrained for the duration of the
+    load. This makes transformers materialize all 42 K/V projections (instead of
+    sharing the top 18), matching the on-disk base checkpoint and vLLM's runtime
+    view — without it the trained adapter is invalid under vLLM for gemma4-4b.
+    See finetune/model.py:_override_kv_sharing for the full rationale.
+    """
+    import transformers
+
+    orig = transformers.AutoConfig.from_pretrained
+
+    @functools.wraps(orig)
+    def patched(*args: Any, **kwargs: Any):
+        cfg = orig(*args, **kwargs)
+        text = getattr(cfg, "text_config", cfg)
+        if getattr(text, "num_kv_shared_layers", 0):
+            logger.info(
+                "Unsloth: overriding num_kv_shared_layers %d -> 0 (vLLM/base match)",
+                text.num_kv_shared_layers,
+            )
+            text.num_kv_shared_layers = 0
+        return cfg
+
+    transformers.AutoConfig.from_pretrained = patched
+    try:
+        yield
+    finally:
+        transformers.AutoConfig.from_pretrained = orig
+
+
+def _unwrap_tokenizer(maybe_processor: Any, model_path: str) -> Any:
+    """
+    Return a real tokenizer from whatever FastModel handed back.
+
+    For multimodal models (e.g. gemma4-4b) Unsloth returns a Processor
+    (Gemma4Processor) whose text tokenizer lives at `.tokenizer`. The dataset
+    and collator call `.encode` / `.apply_chat_template`, which a processor does
+    not fully expose, so unwrap to the inner tokenizer to match the default path.
+    """
+    tok = maybe_processor
+    if tok is None:
+        return load_tokenizer(model_path)
+    if not hasattr(tok, "encode") and hasattr(tok, "tokenizer"):
+        logger.info("Unsloth returned a %s; using its inner .tokenizer", type(tok).__name__)
+        tok = tok.tokenizer
+    return tok
 
 # Unsloth's get_peft_model wants a plain list of projection names. The default
 # transformers path uses a regex for gemma4-4b to scope LoRA to the language
@@ -72,14 +127,6 @@ def load_model_and_tokenizer_unsloth(
 
     compute_dtype = _DTYPE_MAP[quant.compute_dtype]
 
-    # Force num_kv_shared_layers=0 on the text submodel so all 42 K/V
-    # projections are materialized — required for vLLM compatibility. See
-    # finetune/model.py:_override_kv_sharing for the full rationale. We pass the
-    # overridden config through to FastModel; if this Unsloth build doesn't
-    # accept a `config` kwarg we fall back and warn loudly, because training
-    # under KV-sharing produces an adapter that's invalid under vLLM.
-    overridden_cfg = _override_kv_sharing(model_path)
-
     load_kwargs: dict[str, Any] = dict(
         model_name=model_path,
         max_seq_length=max_seq_length,
@@ -93,20 +140,29 @@ def load_model_and_tokenizer_unsloth(
         "Loading base model via Unsloth FastModel from %s (max_seq_length=%d, 4bit=%s) ...",
         model_path, max_seq_length, quant.load_in_4bit,
     )
-    try:
-        model, tokenizer = FastModel.from_pretrained(config=overridden_cfg, **load_kwargs)
-    except TypeError:
-        logger.warning(
-            "This Unsloth build does not accept a `config` override on "
-            "from_pretrained — loading without the num_kv_shared_layers=0 fix. "
-            "The resulting adapter may be INVALID under vLLM for gemma4-4b. "
-            "Verify serving coherence before trusting the run."
-        )
-        model, tokenizer = FastModel.from_pretrained(**load_kwargs)
+    # The num_kv_shared_layers=0 override is applied by patching AutoConfig for
+    # the duration of the load (FastModel rejects a `config=` kwarg).
+    with _force_no_kv_sharing():
+        model, processor = FastModel.from_pretrained(**load_kwargs)
 
-    # Match the default path's tokenizer normalization (pad token + right
-    # padding) so the shared collator behaves identically.
-    tokenizer = load_tokenizer(model_path) if tokenizer is None else tokenizer
+    # Confirm the override actually took effect; warn loudly if KV-sharing is
+    # still active, because the merged adapter would then be invalid under vLLM.
+    _text_cfg = getattr(model.config, "text_config", model.config)
+    _shared = getattr(_text_cfg, "num_kv_shared_layers", 0)
+    if _shared:
+        logger.warning(
+            "num_kv_shared_layers is still %d after load — the KV-sharing "
+            "override did NOT take effect. The merged adapter may be INVALID "
+            "under vLLM for gemma4-4b; verify serving coherence.",
+            _shared,
+        )
+    else:
+        logger.info("Confirmed num_kv_shared_layers=0 after load (vLLM-compatible).")
+
+    # Unsloth returns a Processor for multimodal models; unwrap to the text
+    # tokenizer, then match the default path's pad/padding normalization so the
+    # shared collator behaves identically.
+    tokenizer = _unwrap_tokenizer(processor, model_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id

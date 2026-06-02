@@ -19,10 +19,10 @@ import shutil
 from pathlib import Path
 
 import torch
-from peft import PeftModel
+from peft import PeftConfig, PeftModel
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
-from .config import MergeConfig
+from .config import GEMMA4_4B_TARGET_MODULES, MergeConfig, _is_multimodal_gemma
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,26 @@ def merge_adapter(
     )
 
     logger.info("Applying adapter from %s ...", adapter_path)
-    model = PeftModel.from_pretrained(base, str(adapter_path))
+    # Unsloth-trained adapters save plain projection names (q_proj, k_proj, …)
+    # in adapter_config.json because Unsloth scopes LoRA to the language tower
+    # at attach time (finetune_vision_layers=False), not via target_modules.
+    # Vanilla PEFT, however, matches those names against EVERY module — including
+    # the multimodal vision/audio tower's Gemma4ClippableLinear, which it cannot
+    # wrap ("Target module ... is not supported"). When merging a multimodal
+    # Gemma adapter whose targets are a plain list, rescope to the language-only
+    # regex so PEFT injects exactly the modules the saved weights correspond to.
+    # No-op for the default path (its config already stores the regex string).
+    peft_config = PeftConfig.from_pretrained(str(adapter_path))
+    targets = getattr(peft_config, "target_modules", None)
+    if _is_multimodal_gemma(base_model) and not isinstance(targets, str):
+        logger.info(
+            "Rescoping adapter target_modules from %s to the language-only regex "
+            "for the merge (multimodal Gemma).", targets,
+        )
+        peft_config.target_modules = GEMMA4_4B_TARGET_MODULES
+        model = PeftModel.from_pretrained(base, str(adapter_path), config=peft_config)
+    else:
+        model = PeftModel.from_pretrained(base, str(adapter_path))
 
     logger.info("Merging LoRA weights into base model ...")
     model = model.merge_and_unload()

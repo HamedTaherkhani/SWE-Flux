@@ -58,6 +58,36 @@ FINAL_JSON_PROMPT = (
     "Tool phase is closed. Return ONLY the final JSON answer object matching the earlier template. "
     "Do not output markdown or explanations."
 )
+
+# ---------------------------------------------------------------------------
+# Reasoning answer format (gemma4 / reasoning-format runs only)
+# ---------------------------------------------------------------------------
+# Used when the student/model is trained to derive the answer before emitting
+# JSON. Kept here as the single source of truth so the training-time prompts in
+# fine-tuning/create_sft_dataset.py and the eval-time prompts in
+# run_llm_repomap_eval_host.py stay byte-for-byte in lockstep. The default JSON
+# format above is untouched, so non-reasoning models behave exactly as before.
+ANSWER_SENTINEL = "## Answer"
+
+# Rules 7-8 of the system prompt in reasoning mode. The first six rules are
+# identical to the JSON-mode prompt; only the final-answer contract changes.
+ANSWER_RULES_REASONING = (
+    "7. After the follow-up prompt closes the tool phase, first write a brief "
+    "derivation (a few sentences) explaining how the code you read determines "
+    f"the answer, then write '{ANSWER_SENTINEL}' on its own line followed by "
+    "exactly one JSON object matching template_answer keys and value types.\n"
+    f"8. Put only the JSON object after the '{ANSWER_SENTINEL}' line — no markdown "
+    "code fences, and nothing after the JSON."
+)
+
+FINAL_REASONING_PROMPT = (
+    f"You already signaled {TOOL_PHASE_DONE_SENTINEL}. Tool phase is closed. "
+    "First write a brief derivation showing how the code you read determines the "
+    f"answer, then write '{ANSWER_SENTINEL}' on its own line followed by exactly one "
+    "JSON object matching the earlier template. Put only the JSON after that line — "
+    "no markdown code fences, and nothing after the JSON."
+)
+
 DEFAULT_TOOL_NAMES = ["get_repo_map", "list_dir", "read_file"]
 
 
@@ -149,11 +179,16 @@ class ProviderRunner:
         model: str,
         temperature: float = 0.0,
         trace: Optional[Callable[[str], None]] = None,
+        final_answer_prompt: Optional[str] = None,
     ):
         self.provider = provider
         self.model = model
         self.temperature = temperature
         self.trace = trace
+        # The follow-up prompt that closes the tool phase and requests the final
+        # answer. Defaults to bare-JSON (unchanged for all existing models); the
+        # caller passes FINAL_REASONING_PROMPT for reasoning-format (gemma4) runs.
+        self.final_answer_prompt = final_answer_prompt or FINAL_JSON_PROMPT
         self._usage = _empty_usage(provider, model)
 
     def _t(self, msg: str) -> None:
@@ -453,7 +488,7 @@ class ProviderRunner:
         while True:
             if self._is_request_cap_reached(counter):
                 self._t(f"[{trace_label}] request cap reached during tool phase; forcing final JSON request")
-                messages.append({"role": "user", "content": FINAL_JSON_PROMPT})
+                messages.append({"role": "user", "content": self.final_answer_prompt})
                 return self._run_openai_chat(
                     client=client,
                     messages=messages,
@@ -530,7 +565,7 @@ class ProviderRunner:
             messages.append({"role": "assistant", "content": content})
             if _is_tool_phase_done_text(content):
                 self._t(f"[{trace_label}] tool phase complete")
-                messages.append({"role": "user", "content": FINAL_JSON_PROMPT})
+                messages.append({"role": "user", "content": self.final_answer_prompt})
                 return self._run_openai_chat(
                     client=client,
                     messages=messages,
@@ -747,7 +782,7 @@ class ProviderRunner:
                 input=[
                     {
                         "role": "user",
-                        "content": [{"type": "input_text", "text": FINAL_JSON_PROMPT}],
+                        "content": [{"type": "input_text", "text": self.final_answer_prompt}],
                     }
                 ],
                 temperature=self.temperature,
@@ -805,7 +840,7 @@ class ProviderRunner:
                     input=[
                         {
                             "role": "user",
-                            "content": [{"type": "input_text", "text": FINAL_JSON_PROMPT}],
+                            "content": [{"type": "input_text", "text": self.final_answer_prompt}],
                         }
                     ],
                     temperature=self.temperature,
@@ -952,7 +987,7 @@ class ProviderRunner:
                 contents.append(types.ModelContent(parts=[types.Part.from_text(text=text)]))
             if _is_tool_phase_done_text(text):
                 self._t("[gemini] tool phase complete")
-                contents.append(types.UserContent(parts=[types.Part.from_text(text=FINAL_JSON_PROMPT)]))
+                contents.append(types.UserContent(parts=[types.Part.from_text(text=self.final_answer_prompt)]))
                 final_resp = self._gemini_generate(
                     client,
                     model=self.model,
@@ -1043,7 +1078,7 @@ class ProviderRunner:
             self._t(f"[anthropic] assistant: {' '.join(text_parts).strip()}")
             if _is_tool_phase_done_text(text):
                 self._t("[anthropic] tool phase complete")
-                messages.append({"role": "user", "content": FINAL_JSON_PROMPT})
+                messages.append({"role": "user", "content": self.final_answer_prompt})
                 final_resp = client.messages.create(
                     model=self.model,
                     max_tokens=4096,

@@ -36,6 +36,11 @@ from typing import List, Optional
 # Make the finetune package importable regardless of working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Unsloth must be imported before transformers/trl for its monkeypatches to
+# take effect. Gate on the CLI flag so the default path never pulls in Unsloth.
+if "--use-unsloth" in sys.argv:
+    import unsloth  # noqa: F401
+
 import torch  # noqa: E402
 
 from finetune.config import (  # noqa: E402
@@ -124,6 +129,11 @@ def _parse_args() -> argparse.Namespace:
                    help="Also write a merged bf16 model to "
                         "<output-root>/loro-<repo>-merged/ for vLLM serving.")
 
+    p.add_argument("--use-unsloth", action="store_true",
+                   help="Load the model + LoRA via Unsloth FastModel for a "
+                        "larger context window. Hyperparameters and the "
+                        "training loop are unchanged.")
+
     return p.parse_args()
 
 
@@ -175,6 +185,7 @@ def _build_cfg_for_fold(args: argparse.Namespace, held_out: str, train_repos: Li
             output_dir.parent / f"{output_dir.name}-merged"
             if args.merge_after_training else None
         ),
+        use_unsloth=args.use_unsloth,
     )
 
 
@@ -219,7 +230,16 @@ def _run_fold(args: argparse.Namespace, held_out: str, all_repos: List[str],
     logger.info("Output dir: %s", fold_dir)
     logger.info("=" * 72)
 
-    tokenizer = load_tokenizer(cfg.model_path)
+    # Unsloth loads model + tokenizer together; reuse its tokenizer so a single
+    # tokenizer drives chat-templating, the collator, and the model.
+    model = None
+    if cfg.use_unsloth:
+        from finetune.unsloth_model import load_model_and_tokenizer_unsloth
+        model, tokenizer = load_model_and_tokenizer_unsloth(
+            cfg.model_path, cfg.lora, cfg.quant, cfg.data.max_seq_length
+        )
+    else:
+        tokenizer = load_tokenizer(cfg.model_path)
 
     train_ds = build_dataset(cfg.data, tokenizer)
     dataset_stats(train_ds, tokenizer, cfg.data.max_seq_length)
@@ -232,7 +252,8 @@ def _run_fold(args: argparse.Namespace, held_out: str, all_repos: List[str],
     eval_ds = build_dataset(eval_data_cfg, tokenizer)
     logger.info("Eval set (held-out=%s): %d examples", held_out, len(eval_ds))
 
-    model, _ = load_model_and_tokenizer(cfg.model_path, cfg.lora, cfg.quant)
+    if model is None:
+        model, _ = load_model_and_tokenizer(cfg.model_path, cfg.lora, cfg.quant)
 
     trainer = build_trainer(cfg, model, tokenizer, train_ds, eval_dataset=eval_ds)
     trainer.train()

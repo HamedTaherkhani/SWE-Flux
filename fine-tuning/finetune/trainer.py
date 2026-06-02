@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import inspect
+import os
 from typing import Any, List
 
 from datasets import Dataset
@@ -294,6 +295,13 @@ def _build_sft_config(cfg: TrainingConfig, has_eval: bool = False) -> SFTConfig:
         # Unsloth owns gradient checkpointing; let it manage the wrapping.
         kwargs.pop("gradient_checkpointing", None)
         kwargs.pop("gradient_checkpointing_kwargs", None)
+        # Unsloth's SFTTrainer re-tokenizes the dataset with dataset_num_proc
+        # workers, defaulting to (os.cpu_count()); on a 64-core node that
+        # spawns 64 processes each loading the tokenizer and 10k-token texts,
+        # which OOMs and one worker "abruptly dies" mid-map. Cap it low — the
+        # SFT dataset is small (hundreds of examples), so the loss of
+        # parallelism is negligible. Override with TOKENIZE_NUM_PROC if needed.
+        kwargs["dataset_num_proc"] = int(os.environ.get("TOKENIZE_NUM_PROC", "2"))
 
     sft_params = inspect.signature(SFTConfig.__init__).parameters
     length_param = (

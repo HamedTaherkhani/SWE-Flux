@@ -47,6 +47,12 @@ ALIAS_PREFIX="${ALIAS_PREFIX:-gemma4-r64-loro}"
 EVAL_OUTPUT_ROOT="${EVAL_OUTPUT_ROOT:-$SCRIPT_DIR/evaluations}"
 mkdir -p "$EVAL_OUTPUT_ROOT"
 
+# These are gemma4 models trained with the reasoning dataset format (derivation
+# + '## Answer' + JSON). Default to that protocol; override with ANSWER_FORMAT
+# if you trained a bare-JSON adapter instead. (auto would also pick reasoning
+# from the gemma4 alias, but be explicit here.)
+ANSWER_FORMAT="${ANSWER_FORMAT:-reasoning}"
+
 # vLLM server defaults — keep parity with run_vllm_eval.sh unless the user overrides.
 export VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-30910}"
 export VLLM_MAX_NUM_BATCHED_TOKENS="${VLLM_MAX_NUM_BATCHED_TOKENS:-30910}"
@@ -124,6 +130,7 @@ for repo in "${FOLD_LIST[@]}"; do
   "${PYTHON_BIN:-python}" "$EVAL_DIR/run_llm_repomap_eval_host.py" \
     --provider vllm \
     --model "$ALIAS" \
+    --answer-format "$ANSWER_FORMAT" \
     --repo "$repo" \
     --repo-map-mode none \
     --output-root "$EVAL_OUTPUT_ROOT" \
