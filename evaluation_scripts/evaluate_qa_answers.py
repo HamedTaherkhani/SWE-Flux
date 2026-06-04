@@ -18,6 +18,8 @@ import argparse
 import json
 import math
 import re
+import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,6 +27,12 @@ from typing import Any, Dict, List, Optional, Tuple
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 EXCEL_EXCLUDED_TOOLS = {"claude_code", "mini-swe-agent", "mini_swe_agent"}
+
+# Reuse the question-kind counting logic so the Excel report can mirror
+# `python count_question_kinds.py all`.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from count_question_kinds import count_question_kinds  # noqa: E402
 
 
 @dataclass
@@ -494,6 +502,7 @@ def write_excel(
     scope_lines: List[str],
     results: List[Tuple[EvalTarget, EvalStats]],
     aggregate: EvalStats,
+    qa_root: Path,
 ) -> None:
     try:
         from openpyxl import Workbook
@@ -668,6 +677,26 @@ def write_excel(
             row += 1
     autosize(ws5)
 
+    # QuestionKinds — total question_kind counts across all repos
+    # (mirrors the "ALL REPOS" section of `python count_question_kinds.py all`).
+    ws6 = wb.create_sheet("QuestionKinds")
+    headers = ["question_kind", "count"]
+    for col, h in enumerate(headers, start=1):
+        ws6.cell(row=1, column=col, value=h).font = bold
+    row = 2
+    qa_base = qa_root if qa_root.exists() else REPO_ROOT / "qa_instances"
+    grand_total: Counter[str] = Counter()
+    if qa_base.exists():
+        for repo_dir in sorted(p for p in qa_base.iterdir() if p.is_dir()):
+            grand_total.update(count_question_kinds(repo_dir))
+    for kind, count in grand_total.most_common():
+        ws6.cell(row=row, column=1, value=kind)
+        ws6.cell(row=row, column=2, value=count)
+        row += 1
+    ws6.cell(row=row, column=1, value="TOTAL").font = bold
+    ws6.cell(row=row, column=2, value=sum(grand_total.values())).font = bold
+    autosize(ws6)
+
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(path))
 
@@ -775,6 +804,7 @@ def main() -> None:
                 ],
                 results=results,
                 aggregate=aggregate,
+                qa_root=qa_root,
             )
             print(f"\nExcel report written to: {excel_path}")
         return
@@ -840,6 +870,7 @@ def main() -> None:
                 scope_lines=summary_lines,
                 results=results,
                 aggregate=aggregate,
+                qa_root=qa_root,
             )
             print(f"\nExcel report written to: {excel_path}")
         return
@@ -868,6 +899,7 @@ def main() -> None:
             scope_lines=summary_lines,
             results=[(target, stats)],
             aggregate=stats,
+            qa_root=qa_root,
         )
         print(f"\nExcel report written to: {excel_path}")
 

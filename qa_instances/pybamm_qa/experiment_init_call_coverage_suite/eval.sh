@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+ROOT_DIR="${1:-/testbed}"
+INSTANCE_ID="experiment_init_call_coverage_suite"
+TEST_ID="tests/qa/experiment_init_call_coverage_suite_test.py"
+LOG_DIR="$ROOT_DIR/logs/qa_instances/$INSTANCE_ID"
+mkdir -p "$LOG_DIR"
+cd "$ROOT_DIR"
+export TRACE_ON="1"
+export TRACE_FILE="/testbed/src/pybamm/"
+export TRACE_FUNC="pybamm.experiment"
+export TRACE_EVENTS="call,return,exception"
+export TRACE_OUT="$LOG_DIR/trace.log"
+export TRACE_LIMIT="300000"
+export TRACE_MAXLOCALS="120"
+export PYBAMM_DISABLE_TELEMETRY="true"
+rm -f "$LOG_DIR/trace.log" "$LOG_DIR/pytest.log" "$LOG_DIR/oracle.log" "$LOG_DIR/oracle.json"
+pytest -n 0 -rA -s "$TEST_ID" 2>&1 | tee "$LOG_DIR/pytest.log"
+python tests/qa/parse_experiment_init_call_coverage_suite_oracle.py \
+  --trace-log "$LOG_DIR/trace.log" --out "$LOG_DIR/oracle.json" | tee "$LOG_DIR/oracle.log"
