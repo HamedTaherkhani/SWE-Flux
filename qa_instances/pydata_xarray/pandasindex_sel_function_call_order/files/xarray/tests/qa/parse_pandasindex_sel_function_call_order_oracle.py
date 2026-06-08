@@ -85,7 +85,7 @@ def main() -> None:
     output = extract_call_order(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `xarray/tests/qa/pandasindex_sel_function_call_order_test.py`, class "
             "`TestPandasIndexSelFunctionCallOrderHardQA`, method "

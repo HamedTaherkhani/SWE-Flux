@@ -45,7 +45,7 @@ def main() -> None:
     output = extract_max_depth(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/filters_nested_max_call_depth_test.py`, class "
             "`TestFiltersNestedMaxCallDepthQA`, method `test_filters_nested_max_call_depth_case`. "

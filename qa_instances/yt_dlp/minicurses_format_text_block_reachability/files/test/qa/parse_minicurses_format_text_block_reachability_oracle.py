@@ -50,7 +50,7 @@ def main() -> None:
     output = extract_reachability(trace_text)
 
     qa = {
-        "question_kind": "C1_IntraProceduralCFG",
+        "question_kind": "S1_IntraProceduralCFG",
         "question": (
             "Use `test/qa/minicurses_format_text_block_reachability_test.py`, class "
             "`TestMinicursesFormatTextBlockReachabilityQA`, method "

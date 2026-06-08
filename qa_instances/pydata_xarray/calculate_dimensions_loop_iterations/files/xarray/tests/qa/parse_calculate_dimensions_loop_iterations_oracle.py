@@ -70,7 +70,7 @@ def main() -> None:
     output = extract_iterations(trace_text, source_text)
 
     qa = {
-        "question_kind": "C3_Loops",
+        "question_kind": "S3_Loops",
         "question": (
             "Use `xarray/tests/qa/calculate_dimensions_loop_iterations_test.py`, class "
             "`TestCalculateDimensionsLoopIterationsHardQA`, method "

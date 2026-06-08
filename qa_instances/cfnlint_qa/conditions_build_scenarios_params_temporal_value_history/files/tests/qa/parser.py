@@ -108,7 +108,7 @@ def main() -> None:
     history = extract_params_history(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestConditionsBuildScenariosParamsTemporalHistoryQA`, method "

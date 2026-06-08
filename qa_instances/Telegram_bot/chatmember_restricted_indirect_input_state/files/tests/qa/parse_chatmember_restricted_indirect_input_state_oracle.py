@@ -53,7 +53,7 @@ def main() -> None:
     input_state = extract_input_state(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `tests/qa/chatmember_restricted_indirect_input_state_test.py`, class "
             "`TestChatMemberRestrictedIndirectInputStateQA`, method "

@@ -159,7 +159,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `tests/qa/widget_tasklist_direct_calc_box_widths_def_use_pairs_test.py`, class "
             "`TestWidgetTaskListDirectCalcBoxWidthsDefUsePairsQA`, method "

@@ -51,7 +51,7 @@ def main() -> None:
     output = extract_max_depth(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/backend_x11_window_direct_place_max_call_depth_test.py`, class "
             "`TestBackendX11WindowDirectPlaceMaxCallDepthQA`, method "

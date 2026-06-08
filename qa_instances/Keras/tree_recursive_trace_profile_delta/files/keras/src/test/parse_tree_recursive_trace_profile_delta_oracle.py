@@ -76,7 +76,7 @@ def main() -> None:
                 break
 
     qa = {
-        "question_kind": "C1_IntraProceduralCFG",
+        "question_kind": "S1_IntraProceduralCFG",
         "question": (
             "Use `keras/src/test/tree/tree_recursive_trace_profile_delta_test.py`, class "
             "`TreeRecursiveTraceProfileDeltaQATest`, method `test_single_recursive_walk_signature`. "

@@ -41,7 +41,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `tests/qa/hydrogen_psi_nlm_indirect_radial_output_test.py`, class "
             "`TestHydrogenPsiNlmIndirectRadialOutputQA`, method "

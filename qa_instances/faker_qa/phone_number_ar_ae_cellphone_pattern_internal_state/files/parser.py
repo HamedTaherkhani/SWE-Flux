@@ -68,7 +68,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `faker_qa/phone_number_ar_ae_cellphone_pattern_internal_state/files/testcase.py`, class "
             "`TestPhoneNumberArAeCellphonePatternInternalStateQA`, method "

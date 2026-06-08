@@ -45,7 +45,7 @@ def main() -> None:
     output = extract_max_depth(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/solvers_lambert_max_call_depth_test.py`, class "
             "`TestSolversLambertMaxCallDepthQA`, method `test_solvers_lambert_max_call_depth_case`. "

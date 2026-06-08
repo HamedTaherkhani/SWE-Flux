@@ -150,7 +150,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `tests/qa/logic_dpll_int_repr_def_use_pairs_test.py`, class "
             "`TestLogicDpllIntReprDefUsePairsQA`, method "

@@ -45,7 +45,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `tests/qa/dsolve_classify_ode_indirect_hints_test.py`, class "
             "`TestDsolveClassifyOdeIndirectHintsQA`, method "

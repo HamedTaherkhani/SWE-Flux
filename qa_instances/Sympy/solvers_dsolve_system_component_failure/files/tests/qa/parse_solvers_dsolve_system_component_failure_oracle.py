@@ -67,7 +67,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "C6_Exceptions",
+        "question_kind": "S6_Exceptions",
         "question": (
             "Use `tests/qa/solvers_dsolve_system_component_failure_test.py`, class "
             "`TestSolversDsolveSystemComponentFailureQA`, method "

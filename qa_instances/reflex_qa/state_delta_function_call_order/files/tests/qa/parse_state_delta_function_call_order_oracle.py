@@ -60,7 +60,7 @@ def main() -> None:
     output = extract_call_order(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/state_delta_function_call_order_test.py`, class "
             "`TestStateDeltaFunctionCallOrderQA`, method `test_state_delta_function_call_order_case`. "

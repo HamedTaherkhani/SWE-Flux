@@ -71,7 +71,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C6_Exceptions",
+        "question_kind": "S6_Exceptions",
         "question": (
             "Use `faker_qa/credit_card_provider_empty_types_indexerror_uncaught/files/testcase.py`, class "
             "`TestCreditCardProviderEmptyTypesIndexErrorUncaughtQA`, method "

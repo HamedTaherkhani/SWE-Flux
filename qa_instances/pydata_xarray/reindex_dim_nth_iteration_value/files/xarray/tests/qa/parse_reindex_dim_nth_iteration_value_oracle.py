@@ -78,7 +78,7 @@ def main() -> None:
     output = extract_nth_iteration_value(trace_text, source_text)
 
     qa = {
-        "question_kind": "C3_Loops",
+        "question_kind": "S3_Loops",
         "question": (
             "Use `xarray/tests/qa/reindex_dim_nth_iteration_value_test.py`, class "
             "`TestReindexDimNthIterationValueHardQA`, method "

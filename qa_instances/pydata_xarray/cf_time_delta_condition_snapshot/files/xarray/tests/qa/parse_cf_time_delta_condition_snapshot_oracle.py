@@ -88,7 +88,7 @@ def main() -> None:
     output = extract_snapshot(trace_text, source_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Run `xarray/tests/qa/cf_time_delta_condition_snapshot_test.py`, class "
             "`TestCFTimeDeltaConditionSnapshotHardQA`, method "

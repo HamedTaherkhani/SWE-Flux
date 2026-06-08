@@ -131,7 +131,7 @@ def main() -> None:
     defs_by_line, uses_by_line, param_def_line = build_def_use_maps(TARGET_FILE.read_text(encoding="utf-8"))
     observed_pairs = extract_observed_pairs(Path(args.trace_log).read_text(encoding="utf-8"), defs_by_line, uses_by_line, param_def_line)
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `tests/qa/component_render_dict_to_var_def_use_pairs_test.py`, class "
             "`TestComponentRenderDictToVarDefUsePairsQA`, method "

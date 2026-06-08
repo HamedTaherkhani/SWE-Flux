@@ -37,7 +37,7 @@ def main() -> None:
     grads_shape = extract_grads_shape(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_tensor_shape_state_test.py`, "
             "class `OptimizersTensorShapeStateQATest`, method "

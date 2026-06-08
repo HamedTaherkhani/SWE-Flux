@@ -85,7 +85,7 @@ def main() -> None:
     output = extract_value_sequence(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `tests/qa/message_parse_html_last_offset_sequence_test.py`, class "
             "`TestMessageParseHtmlLastOffsetSequenceQA`, method "

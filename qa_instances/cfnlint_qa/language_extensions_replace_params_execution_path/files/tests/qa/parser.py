@@ -50,7 +50,7 @@ def main() -> None:
     executed_path = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "C1_IntraProceduralCFG",
+        "question_kind": "S1_IntraProceduralCFG",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestLanguageExtensionsReplaceParamsExecutionPathQA`, "

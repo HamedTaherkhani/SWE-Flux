@@ -64,7 +64,7 @@ def main() -> None:
     output = extract_call_check(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `test/qa/webvtt_cueblock_parse_helper_call_check_test.py`, class "
             "`TestWebvttCueblockParseHelperCallCheckQA`, method "

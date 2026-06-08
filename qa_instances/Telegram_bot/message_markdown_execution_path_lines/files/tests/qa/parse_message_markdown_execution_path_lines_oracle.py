@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/message_markdown_execution_path_lines_test.py`, class "
             "`TestMessageMarkdownExecutionPathLinesQA`, method "

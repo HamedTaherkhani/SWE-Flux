@@ -149,7 +149,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `faker_qa/ssn_zh_tw_checksum_def_use/files/testcase.py`, class "
             "`TestSsnZhTwChecksumDefUseQA`, method `test_ssn_zh_tw_checksum_def_use_case`. "

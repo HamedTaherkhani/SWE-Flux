@@ -63,7 +63,7 @@ def main() -> None:
     iteration_count = count_loop_iterations(trace_text)
 
     qa = {
-        "question_kind": "C3_Loops",
+        "question_kind": "S3_Loops",
         "question": (
             "Use `tests/qa/logic_dpll_unknown_clause_loop_iterations_test.py`, class "
             "`TestLogicDpllUnknownClauseLoopIterationsQA`, method "

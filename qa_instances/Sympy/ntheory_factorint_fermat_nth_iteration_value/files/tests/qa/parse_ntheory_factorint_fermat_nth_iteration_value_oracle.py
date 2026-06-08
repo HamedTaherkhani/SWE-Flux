@@ -106,7 +106,7 @@ def main() -> None:
     answer = extract_nth_iteration_value(trace_text)
 
     qa = {
-        "question_kind": "C3_Loops",
+        "question_kind": "S3_Loops",
         "question": (
             "Use `tests/qa/ntheory_factorint_fermat_nth_iteration_value_test.py`, class "
             "`TestNTheoryFactorintFermatNthIterationValueQA`, method "

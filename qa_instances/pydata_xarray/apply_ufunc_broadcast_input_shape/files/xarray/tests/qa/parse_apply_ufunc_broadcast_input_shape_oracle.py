@@ -53,7 +53,7 @@ def main() -> None:
     output = extract_shape(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/apply_ufunc_broadcast_input_shape_test.py`, class "
             "`TestApplyUfuncBroadcastInputShapeHardQA`, method "

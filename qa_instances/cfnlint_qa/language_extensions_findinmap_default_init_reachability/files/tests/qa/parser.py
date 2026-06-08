@@ -38,7 +38,7 @@ def main() -> None:
     reached = extract_reachability(trace_text)
 
     qa = {
-        "question_kind": "C1_IntraProceduralCFG",
+        "question_kind": "S1_IntraProceduralCFG",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestLanguageExtensionsFindInMapDefaultInitReachabilityQA`, "

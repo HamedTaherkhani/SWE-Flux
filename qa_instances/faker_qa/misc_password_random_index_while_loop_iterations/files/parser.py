@@ -66,7 +66,7 @@ def main() -> None:
     iteration_count = count_while_body_iterations(trace_text)
 
     qa = {
-        "question_kind": "C3_Loops",
+        "question_kind": "S3_Loops",
         "question": (
             "Use `faker_qa/misc_password_random_index_while_loop_iterations/files/testcase.py`, class "
             "`TestMiscPasswordRandomIndexWhileLoopIterationsQA`, method "

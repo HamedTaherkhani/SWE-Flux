@@ -47,7 +47,7 @@ def main() -> None:
     args = parser.parse_args()
 
     oracle = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": QUESTION,
         "template_answer": TEMPLATE_ANSWER,
         "oracle_answer": {

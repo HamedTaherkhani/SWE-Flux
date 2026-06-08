@@ -36,7 +36,7 @@ def main() -> None:
     missing_grad_vars = extract_missing_grad_vars(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_gradient_filter_state_profile_theta_test.py`, "
             "class `OptimizersGradientFilterStateProfileThetaQATest`, method "

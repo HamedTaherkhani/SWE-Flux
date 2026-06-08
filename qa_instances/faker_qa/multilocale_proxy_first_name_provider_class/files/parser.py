@@ -65,7 +65,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `faker_qa/multilocale_proxy_first_name_provider_class/files/testcase.py`, class "
             "`TestMultilocaleProxyFirstNameProviderClassQA`, method "

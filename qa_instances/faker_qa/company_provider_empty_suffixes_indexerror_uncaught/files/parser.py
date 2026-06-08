@@ -69,7 +69,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C6_Exceptions",
+        "question_kind": "S6_Exceptions",
         "question": (
             "Use `faker_qa/company_provider_empty_suffixes_indexerror_uncaught/files/testcase.py`, class "
             "`TestCompanyProviderEmptySuffixesIndexErrorUncaughtQA`, method "

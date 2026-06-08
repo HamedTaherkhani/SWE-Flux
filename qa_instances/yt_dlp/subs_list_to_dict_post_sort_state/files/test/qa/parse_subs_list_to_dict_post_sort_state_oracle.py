@@ -73,7 +73,7 @@ def main() -> None:
     state = extract_state(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `test/qa/subs_list_to_dict_post_sort_state_test.py`, class "
             "`TestSubsListToDictPostSortStateQA`, method "
