@@ -126,7 +126,7 @@ def main() -> None:
     output = extract_result_indexes_keys(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/concat_result_indexes_keys_test.py`, class "
             "`TestConcatResultIndexesKeysHardQA`, method "

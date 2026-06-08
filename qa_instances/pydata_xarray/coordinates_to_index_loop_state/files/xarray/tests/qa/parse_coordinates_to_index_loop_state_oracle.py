@@ -107,7 +107,7 @@ def main() -> None:
     output = extract_loop_state(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/coordinates_to_index_loop_state_test.py`, class "
             "`TestCoordinatesToIndexLoopStateHardQA`, method "

@@ -57,7 +57,7 @@ def main() -> None:
     call_count = sum(1 for c in calls if c["func"] == normalize_func_identifier(TARGET_FUNCTION))
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/layers/attention/mha_call_frequency_index_var_test.py`, "
             "class `MultiHeadAttentionCallFrequencyIndexVarQATest`, method "

@@ -145,7 +145,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `tests/qa/core_manager_direct_process_key_event_def_use_pairs_test.py`, class "
             "`TestCoreManagerDirectProcessKeyEventDefUsePairsQA`, method "

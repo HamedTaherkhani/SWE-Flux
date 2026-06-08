@@ -75,7 +75,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `faker_qa/python_provider_pydict_indirect_random_type_seq/files/testcase.py`, class "
             "`TestPythonProviderPydictIndirectRandomTypeSeqQA`, method "

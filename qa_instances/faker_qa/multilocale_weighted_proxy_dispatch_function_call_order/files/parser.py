@@ -53,7 +53,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `faker_qa/multilocale_weighted_proxy_dispatch_function_call_order/files/testcase.py`, class "
             "`TestMultilocaleWeightedProxyDispatchFunctionCallOrderQA`, method "

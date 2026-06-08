@@ -54,7 +54,7 @@ def main() -> None:
     output = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "C1_IntraProceduralCFG",
+        "question_kind": "S1_IntraProceduralCFG",
         "question": (
             "Use `tests/qa/core_manager_direct_process_screens_execution_path_lines_test.py`, "
             "class `TestCoreManagerDirectProcessScreensExecutionPathLinesQA`, method "

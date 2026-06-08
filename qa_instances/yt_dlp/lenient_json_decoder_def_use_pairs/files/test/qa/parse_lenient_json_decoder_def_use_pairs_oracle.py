@@ -139,7 +139,7 @@ def main() -> None:
         trace_text, defs_by_line, uses_by_line, tracked_vars)
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `test/qa/lenient_json_decoder_def_use_pairs_test.py`, class "
             "`TestLenientJsonDecoderDefUsePairsQA`, method "

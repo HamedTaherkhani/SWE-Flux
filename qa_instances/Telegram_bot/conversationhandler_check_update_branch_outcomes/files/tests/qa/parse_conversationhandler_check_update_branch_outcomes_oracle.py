@@ -122,7 +122,7 @@ def main() -> None:
     condition_branches = extract_condition_branches(trace_text)
 
     qa = {
-        "question_kind": "C1_IntraProceduralCFG",
+        "question_kind": "S1_IntraProceduralCFG",
         "question": (
             "Run only `tests/qa/conversationhandler_check_update_branch_outcomes_test.py::"
             "TestConversationHandlerCheckUpdateBranchOutcomesQA::"

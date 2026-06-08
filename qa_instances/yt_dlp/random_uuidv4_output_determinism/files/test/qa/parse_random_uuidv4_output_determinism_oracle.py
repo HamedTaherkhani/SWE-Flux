@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_outputs(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `test/qa/random_uuidv4_output_determinism_test.py`, class "
             "`TestRandomUuidv4OutputDeterminismQA`, method "

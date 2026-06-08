@@ -155,7 +155,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `tests/qa/widget_groupbox_direct_draw_def_use_pairs_test.py`, class "
             "`TestWidgetGroupBoxDirectDrawDefUsePairsQA`, method "

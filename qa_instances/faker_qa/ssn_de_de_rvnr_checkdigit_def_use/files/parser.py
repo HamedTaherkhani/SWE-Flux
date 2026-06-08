@@ -154,7 +154,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `faker_qa/ssn_de_de_rvnr_checkdigit_def_use/files/testcase.py`, class "
             "`TestSsnDeDeRvnrCheckdigitDefUseQA`, method `test_rvnr_checkdigit_def_use_case`. "

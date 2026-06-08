@@ -53,7 +53,7 @@ def main() -> None:
     walked = extract_outer_retval(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestTransformWalkForeachOuterStateQA`, method "

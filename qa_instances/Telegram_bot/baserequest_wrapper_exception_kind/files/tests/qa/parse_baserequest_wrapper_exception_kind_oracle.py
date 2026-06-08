@@ -52,7 +52,7 @@ def main() -> None:
     output = extract_exception_kind(trace_text)
 
     qa = {
-        "question_kind": "C6_Exceptions",
+        "question_kind": "S6_Exceptions",
         "question": (
             "Use `tests/qa/baserequest_wrapper_exception_kind_test.py`, class "
             "`TestBaseRequestWrapperExceptionKindQA`, method "

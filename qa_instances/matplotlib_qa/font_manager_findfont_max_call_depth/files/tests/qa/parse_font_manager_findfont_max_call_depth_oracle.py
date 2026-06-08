@@ -58,7 +58,7 @@ def main() -> None:
     output = compute_max_call_depth(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/font_manager_findfont_max_call_depth_test.py`, class "
             "`TestFontManagerFindfontMaxCallDepthQA`, method "

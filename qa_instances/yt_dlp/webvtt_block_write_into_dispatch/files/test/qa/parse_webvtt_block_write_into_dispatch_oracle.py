@@ -68,7 +68,7 @@ def main() -> None:
     output = extract_dispatch(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `test/qa/webvtt_block_write_into_dispatch_test.py`, class "
             "`TestWebvttBlockWriteIntoDispatchQA`, method "

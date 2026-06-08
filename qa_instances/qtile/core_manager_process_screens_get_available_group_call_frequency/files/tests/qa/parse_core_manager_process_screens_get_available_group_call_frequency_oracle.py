@@ -47,7 +47,7 @@ def main() -> None:
     output = extract_call_frequency(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/core_manager_process_screens_get_available_group_call_frequency_test.py`, "
             "class `TestCoreManagerProcessScreensGetAvailableGroupCallFrequencyQA`, method "

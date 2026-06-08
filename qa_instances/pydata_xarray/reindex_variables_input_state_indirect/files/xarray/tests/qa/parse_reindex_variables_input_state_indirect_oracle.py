@@ -100,7 +100,7 @@ def main() -> None:
     output = extract_input_state(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `xarray/tests/qa/reindex_variables_input_state_indirect_test.py`, class "
             "`TestReindexVariablesInputStateIndirectHardQA`, method "

@@ -157,7 +157,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `faker_qa/python_pyfloat_def_use/files/testcase.py`, class "
             "`TestPythonPyfloatDefUseQA`, method `test_pyfloat_def_use_case`. "

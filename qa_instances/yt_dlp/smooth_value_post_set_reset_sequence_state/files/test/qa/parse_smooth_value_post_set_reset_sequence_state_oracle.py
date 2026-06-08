@@ -83,7 +83,7 @@ def main() -> None:
     output = collect_final_state(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `test/qa/smooth_value_post_set_reset_sequence_state_test.py`, class "
             "`TestSmoothValuePostSetResetSequenceStateQA`, method "

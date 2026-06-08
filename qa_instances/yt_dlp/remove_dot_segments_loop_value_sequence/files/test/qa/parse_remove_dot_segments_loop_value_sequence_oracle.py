@@ -66,7 +66,7 @@ def main() -> None:
     output = extract_value_sequence(trace_text)
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `test/qa/remove_dot_segments_loop_value_sequence_test.py`, class "
             "`TestRemoveDotSegmentsLoopValueSequenceQA`, method "

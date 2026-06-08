@@ -66,7 +66,7 @@ def main() -> None:
     output = extract_path_determinism(trace_text)
 
     qa = {
-        "question_kind": "C1_IntraProceduralCFG",
+        "question_kind": "S1_IntraProceduralCFG",
         "question": (
             "Use `test/qa/format_to_regex_path_determinism_test.py`, class "
             "`TestFormatToRegexPathDeterminismQA`, method "

@@ -65,7 +65,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C1_IntraProceduralCFG",
+        "question_kind": "S1_IntraProceduralCFG",
         "question": (
             "Execute test `tests/qa/components_itertag_render_component_path_determinism_test.py::"
             "TestComponentsItertagRenderComponentPathDeterminismQA::"

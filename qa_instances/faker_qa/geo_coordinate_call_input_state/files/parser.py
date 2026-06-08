@@ -75,7 +75,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C4_ProgramState",
+        "question_kind": "S4_ProgramState",
         "question": (
             "Use `faker_qa/geo_coordinate_call_input_state/files/testcase.py`, class "
             "`TestGeoCoordinateCallInputStateQA`, method `test_geo_coordinate_call_input_state_case`. "

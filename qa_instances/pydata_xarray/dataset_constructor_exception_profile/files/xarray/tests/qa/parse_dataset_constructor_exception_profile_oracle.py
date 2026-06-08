@@ -72,7 +72,7 @@ def main() -> None:
     output = extract_exception_profile(trace_text)
 
     qa = {
-        "question_kind": "C6_Exceptions",
+        "question_kind": "S6_Exceptions",
         "question": (
             "Use `xarray/tests/qa/dataset_constructor_exception_profile_test.py`, class "
             "`TestDatasetConstructorExceptionProfileHardQA`, method "

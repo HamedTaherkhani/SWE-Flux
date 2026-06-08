@@ -39,7 +39,7 @@ def main() -> None:
     output = count_interpgrid_calls(trace_text)
 
     qa = {
-        "question_kind": "C2_InterProceduralCFG",
+        "question_kind": "S2_InterProceduralCFG",
         "question": (
             "Use `tests/qa/streamplot_rotating_interpgrid_call_frequency_test.py`, class "
             "`TestStreamplotRotatingInterpgridCallFrequencyQA`, method "

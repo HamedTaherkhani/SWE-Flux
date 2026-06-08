@@ -153,7 +153,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `faker_qa/lorem_text_def_use/files/testcase.py`, class "
             "`TestLoremTextDefUseQA`, method `test_lorem_text_def_use_case`. "

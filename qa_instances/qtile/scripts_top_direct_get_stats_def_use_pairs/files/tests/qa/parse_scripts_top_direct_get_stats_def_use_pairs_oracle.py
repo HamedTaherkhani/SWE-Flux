@@ -157,7 +157,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "C5_DataFlow",
+        "question_kind": "S5_DataFlow",
         "question": (
             "Use `tests/qa/scripts_top_direct_get_stats_def_use_pairs_test.py`, class "
             "`TestScriptsTopDirectGetStatsDefUsePairsQA`, method "
