@@ -571,17 +571,60 @@ def _spec_container_kind(token: str) -> Optional[str]:
     return None
 
 
+# Tokens that, when used as a template_answer dict key or value, describe the
+# expected *shape* rather than literal content. A correct answer carries real
+# keys/values (e.g. "Env", "StackName"), so these must be matched leniently --
+# otherwise validation rejects the correct answer and the repair loop rewrites
+# it into the literal template skeleton (a degenerate "echo" that then scores
+# wrong against the oracle).
+# Only unambiguous primitive type names are treated as wildcard *keys* (e.g. a
+# template `{"str": true}` means "any string key -> bool"). Tokens like "key",
+# "value", "object" are intentionally excluded: templates legitimately use them
+# as literal field names (e.g. reflex `{"object": ..., "key": ...}`), so treating
+# them as wildcards would wrongly drop a required key.
+_WILDCARD_TYPE_TOKENS = {
+    "str", "string", "int", "integer", "float", "number", "bool", "boolean",
+}
+
+
+def _is_placeholder_token(value: Any) -> bool:
+    """True if a template string denotes shape, not literal content.
+
+    Recognizes angle-bracket placeholders ('<key>', '<value>', '<str|object>',
+    '<matching value>') and bare primitive type tokens ('str', 'int', ...). Such
+    tokens constrain shape only and must never be required verbatim in the answer.
+    """
+    if not isinstance(value, str):
+        return False
+    t = value.strip()
+    if len(t) > 2 and t.startswith("<") and t.endswith(">"):
+        return True
+    return t.lower() in _WILDCARD_TYPE_TOKENS
+
+
 def validate_against_template(answer: Any, template: Any, path: str = "$") -> List[str]:
     errors: List[str] = []
 
     if isinstance(template, dict):
         if not isinstance(answer, dict):
             return [f"{path}: expected dict, got {_type_label(answer)}"]
-        for key, tval in template.items():
+        # Split required (literal) keys from wildcard keys ('<top_key>', 'str', ...).
+        literal_items = {k: v for k, v in template.items() if not _is_placeholder_token(k)}
+        wildcard_specs = [v for k, v in template.items() if _is_placeholder_token(k)]
+        for key, tval in literal_items.items():
             if key not in answer:
                 errors.append(f"{path}: missing key '{key}'")
                 continue
             errors.extend(validate_against_template(answer[key], tval, f"{path}.{key}"))
+        # A wildcard key matches arbitrary answer keys; validate each remaining
+        # answer value against the wildcard value-spec, but never require the
+        # literal placeholder key to be present.
+        if wildcard_specs:
+            spec = wildcard_specs[0]
+            for akey, aval in answer.items():
+                if akey in literal_items:
+                    continue
+                errors.extend(validate_against_template(aval, spec, f"{path}.{akey}"))
         return errors
 
     if isinstance(template, list):
@@ -615,6 +658,11 @@ def validate_against_template(answer: Any, template: Any, path: str = "$") -> Li
             return [f"{path}: expected list, got {_type_label(answer)}"]
         if token in {"dict", "object"} and not isinstance(answer, dict):
             return [f"{path}: expected dict, got {_type_label(answer)}"]
+        return []
+
+    # A bare null in a template is a shape placeholder (e.g. [null, null, ...]),
+    # not a requirement that the answer be None.
+    if template is None:
         return []
 
     # If template has concrete literal values, match type only (keeps template flexible).

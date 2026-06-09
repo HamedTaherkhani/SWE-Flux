@@ -134,9 +134,59 @@ def _enum_canonical(s: str) -> str:
     return token.upper()
 
 
+# Keys whose string values are code identifiers (paths / functions / classes).
+# For these we additionally absorb format-only differences: a repo-relative path
+# prefix (`keras/src/...` vs `src/...`), a class repr wrapper
+# (`<class 'a.b.C'>` vs `C`), or a bare-vs-qualified name (`_select_factory` vs
+# `faker.proxy._select_factory`). These never change *which* entity is named --
+# a different module/class/function still fails -- so they only forgive the
+# naming convention, not a wrong answer.
+_IDENTIFIER_KEYS = {
+    "file", "func", "cls", "class", "concrete_class",
+    "dispatched_file", "dispatched_function", "dispatched_class",
+}
+_CLASS_REPR_RE = re.compile(r"^<class\s+'([^']+)'>$")
+_COND_PREFIX_RE = re.compile(r"^(if|elif|while|for|assert)\b\s*")
+
+
+def _strip_class_repr(s: str) -> str:
+    m = _CLASS_REPR_RE.match(s.strip())
+    return m.group(1) if m else s.strip()
+
+
+def _strip_condition(s: str) -> str:
+    t = _COND_PREFIX_RE.sub("", s.strip())
+    if t.endswith(":"):
+        t = t[:-1]
+    return t.strip()
+
+
+def _component_suffix_match(a: str, b: str) -> bool:
+    """True if one dotted/slash identifier is a tail-component suffix of the
+    other (e.g. `_select_factory` of `faker.proxy._select_factory`, or
+    `src/m/metric.py` of `keras/src/m/metric.py`). Requires component-boundary
+    alignment, so `a.foo` and `b.foo` (divergent modules) do NOT match."""
+    sa = [x for x in re.split(r"[./]", a.strip()) if x]
+    sb = [x for x in re.split(r"[./]", b.strip()) if x]
+    if not sa or not sb:
+        return False
+    short, long = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
+    return long[-len(short):] == short
+
+
 def _compare_string_single(expected: str, pred: str, key_name: str) -> bool:
     if expected == pred:
         return True
+
+    kl = key_name.lower()
+    # Condition rendering: `if not (x):` vs the bare expression `not (x)`.
+    if kl == "condition" and _strip_condition(expected) == _strip_condition(pred):
+        return True
+    # Identifier keys: forgive class-repr wrappers and path-prefix / qualifier.
+    if kl in _IDENTIFIER_KEYS:
+        e_id, p_id = _strip_class_repr(expected), _strip_class_repr(pred)
+        if e_id == p_id or _component_suffix_match(e_id, p_id):
+            return True
 
     e_norm = normalize_identifier(expected, key_name)
     p_norm = normalize_identifier(pred, key_name)
@@ -155,6 +205,31 @@ def compare_strings(expected: str, pred: str, key_name: str) -> bool:
     if _is_alt_string(expected):
         return any(_compare_string_single(alt.strip(), pred, key_name) for alt in expected.split(ALT_SEPARATOR))
     return False
+
+
+# Answer fields that are semantically *sets* (the question canonicalizes them as
+# "sorted"/"unique"/"set", so element order carries no meaning). These are
+# compared as multisets so a correct set of elements is not failed merely for
+# being ordered differently than the oracle. Sequence/history/path/geometry
+# fields (executed_path, function_call_order, dispatch_sequence, *_history,
+# output_rectangles, ...) are deliberately NOT listed: their order is the answer.
+ORDER_INSENSITIVE_LIST_KEYS = {
+    "observed_def_use_pairs",
+    "covered_def_use_pairs",
+    "covered_du_pairs",
+    "uncovered_du_pairs_list",
+    "covered_lines",
+    "covered_functions",
+    "union_lines_sorted",
+    "intersection_lines_sorted",
+    "lines_covered_by_only_one_test",
+    "exception_types",
+    "unique_values",
+    "subtype_value_set",
+    "guess_value_set",
+    "safe_tests",
+    "crashing_tests",
+}
 
 
 def is_number(x: Any) -> bool:
@@ -181,6 +256,77 @@ def normalize_special_value(value: Any) -> Any:
     return parsed if isinstance(parsed, dict) else value
 
 
+def _try_parse_container(s: str) -> Tuple[Any, bool]:
+    """Parse a list/dict that the model serialized to a string.
+
+    Returns (value, True) only if it parses to a real list/dict; the caller then
+    compares the parsed structure element-by-element, so wrong *content* still
+    fails -- this forgives only `[1,2]` vs "[1,2]", not a wrong list.
+    """
+    t = s.strip()
+    if not t or t[0] not in "[{":
+        return None, False
+    for parser in (json.loads, ast.literal_eval):
+        try:
+            v = parser(t)
+            if isinstance(v, (list, dict)):
+                return v, True
+        except Exception:
+            pass
+    return None, False
+
+
+def _coerce_scalar_string(s: str) -> Tuple[Any, bool]:
+    """Coerce a scalar the model emitted as a string ('282', 'true', 'null')."""
+    t = s.strip()
+    low = t.lower()
+    if low == "true":
+        return True, True
+    if low == "false":
+        return False, True
+    if low in ("null", "none"):
+        return None, True
+    if re.fullmatch(r"[+-]?\d+", t):
+        try:
+            return int(t), True
+        except Exception:
+            return None, False
+    try:
+        return float(t), True
+    except Exception:
+        return None, False
+
+
+def _compare_list_unordered(
+    expected: List[Any],
+    pred: List[Any],
+    *,
+    key_name: str,
+    path: str,
+    float_tol: float,
+) -> CompareResult:
+    """Multiset comparison: every expected element must match a distinct pred
+    element (using the same element-wise rules as compare_values), regardless of
+    order. Lengths are already known to be equal at the call site."""
+    used = [False] * len(pred)
+    for i, e_item in enumerate(expected):
+        matched = False
+        for j, p_item in enumerate(pred):
+            if used[j]:
+                continue
+            if compare_values(
+                e_item, p_item, key_name=key_name, path=f"{path}[{i}]", float_tol=float_tol
+            ).ok:
+                used[j] = True
+                matched = True
+                break
+        if not matched:
+            return CompareResult(
+                False, f"{path}: unmatched_element (order-insensitive) {json.dumps(e_item)[:80]}"
+            )
+    return CompareResult(True)
+
+
 def compare_values(
     expected: Any,
     pred: Any,
@@ -203,10 +349,18 @@ def compare_values(
         return CompareResult(False, f"{path}: string_mismatch {expected} != {pred}")
 
     if isinstance(expected, list):
+        if isinstance(pred, str):
+            parsed, ok = _try_parse_container(pred)
+            if ok and isinstance(parsed, list):
+                pred = parsed
         if not isinstance(pred, list):
             return CompareResult(False, f"{path}: type_mismatch expected=list got={type(pred).__name__}")
         if len(expected) != len(pred):
             return CompareResult(False, f"{path}: list_len {len(expected)} != {len(pred)}")
+        if key_name in ORDER_INSENSITIVE_LIST_KEYS:
+            return _compare_list_unordered(
+                expected, pred, key_name=key_name, path=path, float_tol=float_tol
+            )
         for i, (e_item, p_item) in enumerate(zip(expected, pred)):
             child = compare_values(
                 e_item,
@@ -220,6 +374,10 @@ def compare_values(
         return CompareResult(True)
 
     if isinstance(expected, dict):
+        if isinstance(pred, str):
+            parsed, ok = _try_parse_container(pred)
+            if ok and isinstance(parsed, dict):
+                pred = parsed
         if not isinstance(pred, dict):
             return CompareResult(False, f"{path}: type_mismatch expected=dict got={type(pred).__name__}")
         # Flexible matching: require all expected keys, ignore extra predicted keys.
@@ -237,6 +395,22 @@ def compare_values(
             if not child.ok:
                 return child
         return CompareResult(True)
+
+    # D1 fidelity: a number / bool / None rendered as a string ('282', 'true',
+    # 'null', '8.0'). Coerce and require the *value* to be equal -- '8' will not
+    # match an expected 9, so this forgives only the type, not a wrong number.
+    if isinstance(pred, str) and not isinstance(expected, (str, list, dict)):
+        cv, ok = _coerce_scalar_string(pred)
+        if ok:
+            if isinstance(expected, bool):
+                if isinstance(cv, bool) and cv == expected:
+                    return CompareResult(True)
+            elif expected is None:
+                if cv is None:
+                    return CompareResult(True)
+            elif is_number(expected) and is_number(cv):
+                if math.isclose(float(expected), float(cv), rel_tol=float_tol, abs_tol=float_tol):
+                    return CompareResult(True)
 
     if expected == pred:
         return CompareResult(True)
