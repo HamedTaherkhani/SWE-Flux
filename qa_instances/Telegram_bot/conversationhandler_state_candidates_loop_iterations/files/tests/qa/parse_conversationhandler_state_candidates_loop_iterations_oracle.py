@@ -69,7 +69,7 @@ def main() -> None:
     iteration_count = count_loop_iterations(trace_text)
 
     qa = {
-        "question_kind": "S3_Loops",
+        "question_kind": "S2_Loops",
         "question": (
             "Use `tests/qa/conversationhandler_state_candidates_loop_iterations_test.py`, class "
             "`TestConversationHandlerStateCandidatesLoopIterationsQA`, method "

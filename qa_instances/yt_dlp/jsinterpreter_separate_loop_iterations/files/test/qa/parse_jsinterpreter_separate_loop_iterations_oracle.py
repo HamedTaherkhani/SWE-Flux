@@ -51,7 +51,7 @@ def main() -> None:
     output = extract_iteration_count(trace_text)
 
     qa = {
-        "question_kind": "S3_Loops",
+        "question_kind": "S2_Loops",
         "question": (
             "Use `test/qa/jsinterpreter_separate_loop_iterations_test.py`, class "
             "`TestJsInterpreterSeparateLoopIterationsQA`, method "

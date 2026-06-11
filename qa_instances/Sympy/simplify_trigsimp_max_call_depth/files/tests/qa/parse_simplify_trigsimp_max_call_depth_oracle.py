@@ -45,7 +45,7 @@ def main() -> None:
     output = extract_max_depth(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/simplify_trigsimp_max_call_depth_test.py`, class "
             "`TestSimplifyTrigsimpMaxCallDepthQA`, method `test_simplify_trigsimp_max_call_depth_case`. "

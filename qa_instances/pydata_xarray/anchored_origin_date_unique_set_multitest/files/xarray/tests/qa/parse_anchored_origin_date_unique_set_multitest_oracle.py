@@ -93,7 +93,7 @@ def main() -> None:
     output = extract_unique_values(trace_text, source_text)
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Use `xarray/tests/qa/anchored_origin_date_unique_set_multitest_test.py`, class "
             "`TestAnchoredOriginDateUniqueSetMultitestHardQA`, and run the full suite in that file "

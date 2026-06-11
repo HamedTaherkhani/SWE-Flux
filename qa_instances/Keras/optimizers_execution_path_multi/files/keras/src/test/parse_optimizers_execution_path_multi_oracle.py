@@ -62,7 +62,7 @@ def main() -> None:
     execution_path = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_execution_path_multi_test.py`, "
             "class `OptimizersExecutionPathMultiQATest`, method "

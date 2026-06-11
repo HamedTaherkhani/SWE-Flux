@@ -145,7 +145,7 @@ def main() -> None:
     var_list = ", ".join(f"`{v}`" for v in tracked_names_sorted)
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `tests/qa/colors_to_rgba_no_colorcycle_def_use_pairs_test.py`, class "
             "`TestColorsToRgbaNoColorcycleDefUsePairsQA`, method "

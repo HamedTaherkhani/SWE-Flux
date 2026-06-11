@@ -119,7 +119,7 @@ def main() -> None:
     output = extract_range(trace_text, source_text)
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Use `xarray/tests/qa/expanded_indexer_len_range_multitest_test.py`, class "
             "`TestExpandedIndexerLenRangeMultitestHardQA`, and execute the full suite in that file "

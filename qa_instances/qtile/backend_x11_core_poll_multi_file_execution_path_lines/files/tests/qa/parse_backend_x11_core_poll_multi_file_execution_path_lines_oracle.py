@@ -55,7 +55,7 @@ def main() -> None:
     output = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/backend_x11_core_poll_multi_file_execution_path_lines_test.py`, "
             "class `TestBackendX11CorePollMultiFileExecutionPathLinesQA`, method "

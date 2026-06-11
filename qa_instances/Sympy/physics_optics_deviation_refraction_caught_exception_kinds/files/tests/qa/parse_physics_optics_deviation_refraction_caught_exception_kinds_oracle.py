@@ -43,7 +43,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "S6_Exceptions",
+        "question_kind": "S5_Exceptions",
         "question": (
             "Use `tests/qa/physics_optics_deviation_refraction_caught_exception_kinds_test.py`, class "
             "`TestPhysicsOpticsDeviationRefractionCaughtExceptionKindsQA`, method "

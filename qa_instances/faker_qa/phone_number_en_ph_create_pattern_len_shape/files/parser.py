@@ -70,7 +70,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `faker_qa/phone_number_en_ph_create_pattern_len_shape/files/testcase.py`, class "
             "`TestPhoneNumberEnPhCreatePatternLenShapeQA`, method "

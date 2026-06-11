@@ -153,7 +153,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `faker_qa/datetime_thai_strftime_def_use/files/testcase.py`, class "
             "`TestDatetimeThaiStrftimeDefUseQA`, method `test_thai_strftime_def_use_case`. "

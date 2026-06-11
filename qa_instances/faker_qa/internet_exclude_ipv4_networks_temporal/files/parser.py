@@ -39,7 +39,7 @@ def main():
             pass
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `testcase.py`, class `TestInternetExcludeIpv4NetworksQA`, method "
             "`test_internet_exclude_ipv4_networks_case`. Focus only on function "

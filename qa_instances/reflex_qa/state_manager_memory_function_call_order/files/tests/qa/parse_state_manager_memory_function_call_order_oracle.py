@@ -59,7 +59,7 @@ def main() -> None:
     output = extract_call_order(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/state_manager_memory_function_call_order_test.py`, class "
             "`TestStateManagerMemoryFunctionCallOrderQA`, method "

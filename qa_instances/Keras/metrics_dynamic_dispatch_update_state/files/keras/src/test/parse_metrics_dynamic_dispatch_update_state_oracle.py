@@ -79,7 +79,7 @@ def main() -> None:
     dispatched = extract_dispatched_update_state(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/metrics/metrics_dynamic_dispatch_update_state_test.py`, "
             "class `MetricsDynamicDispatchUpdateStateQATest`, method "

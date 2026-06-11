@@ -52,7 +52,7 @@ def main():
     args = parser.parse_args()
     answer = extract(Path(args.trace_log).read_text(encoding="utf-8"))
     qa = {
-        "question_kind": "M2_InterProceduralCFG",
+        "question_kind": "M6_InterProceduralCFG",
         "question": (
             "Run the full test suite in "
             "`tests/qa/experiment_init_call_coverage_suite_test.py` (methods "

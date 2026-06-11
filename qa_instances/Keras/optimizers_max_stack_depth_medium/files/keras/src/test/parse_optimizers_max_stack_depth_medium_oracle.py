@@ -45,7 +45,7 @@ def main() -> None:
     max_depth = compute_max_stack_depth(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_max_stack_depth_medium_test.py`, "
             "class `OptimizersMaxStackDepthMediumQATest`, method "

@@ -54,7 +54,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/core_subs_unordered_redo_state_test.py`, class "
             "`TestCoreSubsUnorderedRedoStateQA`, method "

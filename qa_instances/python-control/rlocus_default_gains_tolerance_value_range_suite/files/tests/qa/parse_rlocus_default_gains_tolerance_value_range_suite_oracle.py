@@ -87,7 +87,7 @@ def main() -> None:
     answer = extract_value_range(Path(args.trace_log).read_text(encoding="utf-8"))
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Run the full test suite in "
             "`tests/qa/rlocus_default_gains_tolerance_value_range_suite_test.py` "

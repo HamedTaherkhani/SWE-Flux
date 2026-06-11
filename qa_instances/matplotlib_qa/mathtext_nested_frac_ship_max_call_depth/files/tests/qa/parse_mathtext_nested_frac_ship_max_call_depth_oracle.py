@@ -49,7 +49,7 @@ def main() -> None:
     output = compute_max_call_depth(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/mathtext_nested_frac_ship_max_call_depth_test.py`, class "
             "`TestMathtextNestedFracShipMaxCallDepthQA`, method "

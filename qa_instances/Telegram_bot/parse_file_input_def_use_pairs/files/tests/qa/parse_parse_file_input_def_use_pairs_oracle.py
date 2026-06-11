@@ -153,7 +153,7 @@ def main() -> None:
     observed_pairs = extract_observed_pairs(trace_text, defs_by_line, uses_by_line, tracked_vars)
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `tests/qa/parse_file_input_def_use_pairs_test.py`, class "
             "`TestParseFileInputDefUsePairsQA`, method "

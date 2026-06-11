@@ -70,7 +70,7 @@ def main() -> None:
     history = extract_pointer_snapshot_history(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestResolverWalkCfnPointerPointerTemporalHistoryQA`, method "

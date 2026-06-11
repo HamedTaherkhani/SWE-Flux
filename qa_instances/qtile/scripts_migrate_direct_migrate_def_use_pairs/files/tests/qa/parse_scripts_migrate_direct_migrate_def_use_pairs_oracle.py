@@ -155,7 +155,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `tests/qa/scripts_migrate_direct_migrate_def_use_pairs_test.py`, class "
             "`TestScriptsMigrateDirectMigrateDefUsePairsQA`, method "

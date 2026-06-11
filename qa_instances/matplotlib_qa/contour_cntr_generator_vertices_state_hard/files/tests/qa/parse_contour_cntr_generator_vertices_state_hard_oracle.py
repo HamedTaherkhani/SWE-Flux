@@ -88,7 +88,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/contour_cntr_generator_vertices_state_hard_test.py`, class "
             "`TestContourCntrGeneratorVerticesStateHardQA`, method "

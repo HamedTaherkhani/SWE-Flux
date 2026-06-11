@@ -53,7 +53,7 @@ def main() -> None:
     invariant_exists = len(retvals) == 10 and len(set(retvals)) == 1
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Execute test "
             "`tests/qa/colors_to_rgba_output_determinism_test.py::"

@@ -138,7 +138,7 @@ def main() -> None:
     var_list = ", ".join(f"`{v}`" for v in tracked_names_sorted)
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `tests/qa/testcase.py`, class `TestJsonschemaSubDefUsePairsQA`, method "
             "`test_jsonschema_sub_def_use_pairs_case`. "

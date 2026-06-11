@@ -80,7 +80,7 @@ def main() -> None:
     answer = extract_iteration_range(trace_text)
 
     qa = {
-        "question_kind": "M3_Loops",
+        "question_kind": "M2_Loops",
         "question": (
             "Run the full test suite in "
             "`tests/qa/sysnorm_linf_bisection_loop_iteration_range_suite_test.py` "

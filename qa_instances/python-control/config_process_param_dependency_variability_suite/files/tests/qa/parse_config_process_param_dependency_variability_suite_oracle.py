@@ -94,7 +94,7 @@ def main() -> None:
     dependencies_by_test = extract_dependencies(trace_text)
 
     qa = {
-        "question_kind": "M5_DataFlow",
+        "question_kind": "M4_DataFlow",
         "question": (
             "Run the full test suite in "
             "`tests/qa/config_process_param_dependency_variability_suite_test.py` "

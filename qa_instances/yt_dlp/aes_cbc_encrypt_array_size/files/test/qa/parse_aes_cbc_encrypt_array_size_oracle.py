@@ -75,7 +75,7 @@ def main() -> None:
     sizes = extract_sizes(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `test/qa/aes_cbc_encrypt_array_size_test.py`, class "
             "`TestAesCbcEncryptArraySizeQA`, method "

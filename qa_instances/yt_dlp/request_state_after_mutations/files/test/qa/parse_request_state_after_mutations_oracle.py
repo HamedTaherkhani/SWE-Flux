@@ -49,7 +49,7 @@ def main() -> None:
     snapshot = extract_snapshot(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `test/qa/request_state_after_mutations_test.py`, class "
             "`TestRequestStateAfterMutationsQA`, method "

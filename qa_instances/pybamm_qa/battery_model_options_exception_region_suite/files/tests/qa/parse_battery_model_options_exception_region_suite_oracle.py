@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     qa = {
-        "question_kind": "M6_ExceptionalBehavior",
+        "question_kind": "M5_ExceptionalBehavior",
         "question": (
             "Run `tests/qa/battery_model_options_exception_region_suite_test.py` "
             "methods `test_case_01` through `test_case_10` in "

@@ -35,7 +35,7 @@ def main() -> None:
     values = extract_values(trace_text)
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Use `keras/src/test/optimizers/loss_scale_step_counter_range_multi_test.py`, "
             "class `LossScaleStepCounterRangeMultiQATest`, and all 12 test methods. "

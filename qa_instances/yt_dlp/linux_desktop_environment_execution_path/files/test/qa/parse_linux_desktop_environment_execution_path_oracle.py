@@ -51,7 +51,7 @@ def main() -> None:
     output = extract_path(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `test/qa/linux_desktop_environment_execution_path_test.py`, class "
             "`TestLinuxDesktopEnvironmentExecutionPathQA`, method "

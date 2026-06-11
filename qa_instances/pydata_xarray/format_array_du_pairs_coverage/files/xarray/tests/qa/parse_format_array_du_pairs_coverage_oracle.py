@@ -111,7 +111,7 @@ def main() -> None:
     output = extract_pairs(trace_text, source_text)
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `xarray/tests/qa/format_array_du_pairs_coverage_test.py`, class "
             "`TestFormatArrayDUPairsCoverageHardQA`, method "

@@ -28,7 +28,7 @@ def extract(text):
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument("--trace-log"); p.add_argument("--out"); a=p.parse_args()
-    qa={"question_kind":"M2_InterProceduralCFG","question":(
+    qa={"question_kind":"M6_InterProceduralCFG","question":(
         "Run `tests/qa/simulation_build_call_coverage_suite_test.py` methods "
         "`test_case_01` through `test_case_10` in `TestSimulationBuildCallCoverageQA`, "
         "executed sequentially in file order. Each test calls "

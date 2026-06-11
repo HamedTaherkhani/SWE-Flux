@@ -50,7 +50,7 @@ def main() -> None:
     max_depth = extract_max_depth(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestLanguageExtensionsWalkMaxCallDepthQA`, method "

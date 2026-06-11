@@ -79,7 +79,7 @@ def main() -> None:
     answer = extract_iteration_range(Path(args.trace_log).read_text(encoding="utf-8"))
 
     qa = {
-        "question_kind": "M3_Loops",
+        "question_kind": "M2_Loops",
         "question": (
             "Run the full test suite in "
             "`tests/qa/xferfcn_common_den_loop_iteration_range_suite_test.py` "

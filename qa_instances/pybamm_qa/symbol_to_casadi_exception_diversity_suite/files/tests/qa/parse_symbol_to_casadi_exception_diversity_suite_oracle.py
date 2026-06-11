@@ -30,7 +30,7 @@ def extract(lines):
 def main():
     p = argparse.ArgumentParser(); p.add_argument("--trace-log", required=True); p.add_argument("--out", required=True); a = p.parse_args()
     qa = {
-        "question_kind": "M6_ExceptionalBehavior",
+        "question_kind": "M5_ExceptionalBehavior",
         "question": (
             "Run `tests/qa/symbol_to_casadi_exception_diversity_suite_test.py` methods "
             "`test_case_01` through `test_case_10` in `TestSymbolToCasadiExceptionDiversityQA`, "

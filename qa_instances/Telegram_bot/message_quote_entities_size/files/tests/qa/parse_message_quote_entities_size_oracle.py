@@ -57,7 +57,7 @@ def main() -> None:
     output = extract_size(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/message_quote_entities_size_test.py`, class "
             "`TestMessageQuoteEntitiesSizeQA`, method `test_quote_entities_size_case`. "

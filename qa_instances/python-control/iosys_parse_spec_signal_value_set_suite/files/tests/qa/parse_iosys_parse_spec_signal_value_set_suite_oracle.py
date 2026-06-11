@@ -55,7 +55,7 @@ def main() -> None:
 
     answer = extract_value_set(Path(args.trace_log).read_text(encoding="utf-8"))
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Run the full test suite in "
             "`tests/qa/iosys_parse_spec_signal_value_set_suite_test.py` (all "

@@ -65,7 +65,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/stats_cdf_indirect_finite_loop_state_test.py`, class "
             "`TestStatsCdfIndirectFiniteLoopStateQA`, method "

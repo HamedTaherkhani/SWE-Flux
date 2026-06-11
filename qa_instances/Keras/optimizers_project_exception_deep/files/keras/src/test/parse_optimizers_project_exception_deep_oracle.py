@@ -45,7 +45,7 @@ def main() -> None:
     exception_data = extract_project_exception(trace_text)
 
     qa = {
-        "question_kind": "S6_Exceptions",
+        "question_kind": "S5_Exceptions",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_project_exception_deep_test.py`, "
             "class `OptimizersProjectExceptionDeepQATest`, method "

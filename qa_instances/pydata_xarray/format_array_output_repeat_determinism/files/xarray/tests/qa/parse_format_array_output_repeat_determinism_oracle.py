@@ -112,7 +112,7 @@ def main() -> None:
     output = extract_determinism(trace_text, source_text)
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Use `xarray/tests/qa/format_array_output_repeat_determinism_test.py`, class "
             "`TestFormatArrayOutputRepeatDeterminismHardQA`, and execute the full suite in that "

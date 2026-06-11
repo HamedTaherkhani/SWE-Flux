@@ -38,7 +38,7 @@ def main():
     p.add_argument("--out", default=f"/testbed/logs/qa_instances/{ID}/oracle.json")
     a = p.parse_args()
     qa = {
-        "question_kind": "M2_InterProceduralCFG",
+        "question_kind": "M6_InterProceduralCFG",
         "question": (
             "Run the full test suite in `tests/qa/base_solver_solve_call_coverage_suite_test.py` "
             "(methods `test_case_01` through `test_case_10` in "

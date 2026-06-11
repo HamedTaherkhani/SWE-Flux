@@ -52,7 +52,7 @@ def main() -> None:
     output = extract_forward_logtransform_call_count(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/scale_logtransform_forward_call_frequency_triple_branch_test.py`, class "
             "`TestScaleLogtransformForwardCallFrequencyTripleBranchQA`, method "

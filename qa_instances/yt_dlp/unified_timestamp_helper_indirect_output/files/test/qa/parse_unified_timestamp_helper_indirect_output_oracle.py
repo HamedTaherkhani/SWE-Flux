@@ -59,7 +59,7 @@ def main() -> None:
     }
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `test/qa/unified_timestamp_helper_indirect_output_test.py`, class "
             "`TestUnifiedTimestampHelperIndirectOutputQA`, method "

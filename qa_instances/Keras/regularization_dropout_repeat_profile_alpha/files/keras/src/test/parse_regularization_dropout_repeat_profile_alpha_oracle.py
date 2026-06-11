@@ -61,7 +61,7 @@ def main() -> None:
                 break
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `keras/src/test/layers/regularization/dropout_repeat_profile_alpha_test.py`, class "
             "`DropoutRepeatProfileAlphaQATest`, method `test_repeated_output_profile`. This test executes "

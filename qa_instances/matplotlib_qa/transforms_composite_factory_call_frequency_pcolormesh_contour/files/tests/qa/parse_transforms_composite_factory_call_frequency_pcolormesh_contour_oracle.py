@@ -38,7 +38,7 @@ def main() -> None:
     output = extract_composite_factory_call_count(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/transforms_composite_factory_call_frequency_pcolormesh_contour_test.py`, class "
             "`TestTransformsCompositeFactoryCallFrequencyPcolormeshContourQA`, method "

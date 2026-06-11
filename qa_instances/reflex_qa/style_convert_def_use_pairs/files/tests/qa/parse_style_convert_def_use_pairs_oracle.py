@@ -139,7 +139,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `tests/qa/style_convert_def_use_pairs_test.py`, class "
             "`TestStyleConvertDefUsePairsQA`, method `test_style_convert_def_use_pairs_case`. "

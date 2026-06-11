@@ -93,7 +93,7 @@ def main() -> None:
     output = extract_du_coverage(trace_text, source_text)
 
     qa = {
-        "question_kind": "M5_DataFlow",
+        "question_kind": "M4_DataFlow",
         "question": (
             "Use `xarray/tests/qa/reindex_newvar_du_coverage_test.py`, class "
             "`TestReindexNewVarDUCoverageHardQA`, and execute the full suite in that file "

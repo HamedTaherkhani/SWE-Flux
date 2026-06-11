@@ -41,7 +41,7 @@ def main():
     parser.add_argument("--out")
     args = parser.parse_args()
     qa = {
-        "question_kind": "M2_InterProceduralCFG",
+        "question_kind": "M6_InterProceduralCFG",
         "question": (
             "Run `tests/qa/lithium_ion_spm_init_call_coverage_suite_test.py` methods "
             "`test_case_01` through `test_case_10` in `TestLithiumIonSPMInitCallCoverageQA`, "

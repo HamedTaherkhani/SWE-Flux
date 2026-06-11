@@ -61,7 +61,7 @@ def main() -> None:
     keys_value = extract_outer_keys(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestTemplateSearchDeepKeysOuterPathsStateQA`, method "

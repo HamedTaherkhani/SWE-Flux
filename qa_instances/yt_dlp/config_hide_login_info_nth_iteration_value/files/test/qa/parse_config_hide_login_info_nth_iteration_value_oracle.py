@@ -70,7 +70,7 @@ def main() -> None:
     output = extract_iteration_snapshot(trace_text)
 
     qa = {
-        "question_kind": "S3_Loops",
+        "question_kind": "S2_Loops",
         "question": (
             "Use `test/qa/config_hide_login_info_nth_iteration_value_test.py`, class "
             "`TestConfigHideLoginInfoNthIterationValueQA`, method "

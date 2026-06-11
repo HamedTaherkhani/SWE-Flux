@@ -52,7 +52,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/columns_indirect_add_client_input_state_test.py`, class "
             "`TestColumnsIndirectAddClientInputStateQA`, method "

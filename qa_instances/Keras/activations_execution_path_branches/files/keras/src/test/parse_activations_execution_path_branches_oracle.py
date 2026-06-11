@@ -63,7 +63,7 @@ def main() -> None:
     execution_path = extract_execution_path(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/activations/activations_execution_path_branches_test.py`, "
             "class `ActivationsExecutionPathBranchesQATest`, method "

@@ -90,7 +90,7 @@ def main() -> None:
     output = extract_covered_du_pairs(trace_text, source_text)
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `xarray/tests/qa/maybe_promote_du_pairs_coverage_test.py`, class "
             "`TestMaybePromoteDUPairsCoverageHardQA`, method "

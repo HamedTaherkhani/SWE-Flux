@@ -104,7 +104,7 @@ def main() -> None:
     snapshot = extract_snapshot(trace_text)
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestFindInMapValueFallbackMaxLengthConditionSnapshotQA`. "

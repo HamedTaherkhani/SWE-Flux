@@ -59,7 +59,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `faker_qa/doi_indirect_suffix_internal_state/files/testcase.py`, class "
             "`TestDoiIndirectSuffixInternalStateQA`, method "

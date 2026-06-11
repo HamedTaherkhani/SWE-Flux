@@ -63,7 +63,7 @@ def main() -> None:
     call_order = extract_call_order(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/layers/attention/gqa_function_call_order_hard_test.py`, "
             "class `GroupedQueryAttentionFunctionCallOrderHardQATest`, method "

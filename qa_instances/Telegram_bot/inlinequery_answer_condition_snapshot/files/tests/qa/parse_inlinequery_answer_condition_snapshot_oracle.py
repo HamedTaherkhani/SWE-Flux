@@ -100,7 +100,7 @@ def main() -> None:
     answer = extract_condition_snapshot(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/inlinequery_answer_condition_snapshot_test.py`, class "
             "`TestInlineQueryAnswerConditionSnapshotQA`, method "

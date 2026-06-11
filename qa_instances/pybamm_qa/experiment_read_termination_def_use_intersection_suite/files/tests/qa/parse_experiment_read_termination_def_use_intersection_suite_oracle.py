@@ -169,7 +169,7 @@ def main():
     tracked_vars = ", ".join(f"`{name}`" for name in sorted(TRACKED_VARS))
     tests = ", ".join(f"`test_case_{i:02d}`" for i in range(1, NUM_TESTS + 1))
     qa = {
-        "question_kind": "M5_DataFlow",
+        "question_kind": "M4_DataFlow",
         "question": (
             f"Run the full test suite in `{TEST_FILE}` (all 10 test methods in "
             f"`{TEST_CLASS}`, in file order: {tests}). The tests construct "

@@ -65,7 +65,7 @@ def main() -> None:
     total_iterations = extract_total_iterations(trace_text)
 
     qa = {
-        "question_kind": "M3_Loops",
+        "question_kind": "M2_Loops",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestTemplateGetDirectivesOuterLoopTotalIterationsQA`. "

@@ -79,7 +79,7 @@ def main() -> None:
     output = extract_profile(trace_text)
 
     qa = {
-        "question_kind": "S6_Exceptions",
+        "question_kind": "S5_Exceptions",
         "question": (
             "Use `xarray/tests/qa/pandasindex_incompatible_inputs_profile_test.py`, class "
             "`TestPandasIndexIncompatibleInputsProfileHardQA`, method "

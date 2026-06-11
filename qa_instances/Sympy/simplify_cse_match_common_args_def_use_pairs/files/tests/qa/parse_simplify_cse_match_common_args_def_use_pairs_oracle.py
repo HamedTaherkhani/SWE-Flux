@@ -136,7 +136,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `tests/qa/simplify_cse_match_common_args_def_use_pairs_test.py`, class "
             "`TestSimplifyCseMatchCommonArgsDefUsePairsQA`, method "

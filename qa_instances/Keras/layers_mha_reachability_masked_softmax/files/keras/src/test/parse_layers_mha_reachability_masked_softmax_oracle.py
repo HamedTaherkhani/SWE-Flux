@@ -59,7 +59,7 @@ def main() -> None:
     first_30_calls = calls[:30]
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/layers/attention/mha_reachability_masked_softmax_test.py`, "
             "class `MultiHeadAttentionReachabilityMaskedSoftmaxQATest`, method "

@@ -153,7 +153,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `faker_qa/internet_exclude_ipv4_networks_def_use/files/testcase.py`, class "
             "`TestInternetExcludeIpv4NetworksDefUseQA`, method `test_exclude_ipv4_networks_def_use_case`. "

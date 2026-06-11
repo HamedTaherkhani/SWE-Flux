@@ -86,7 +86,7 @@ def main() -> None:
         raise RuntimeError("No observed values found for variable 'missing_vars'.")
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Use the full test suite in "
             "`tests/qa/scripts_check_direct_type_check_config_vars_missing_values_range_suite_test.py` "

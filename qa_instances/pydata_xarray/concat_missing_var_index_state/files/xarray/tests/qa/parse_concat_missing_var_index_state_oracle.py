@@ -91,7 +91,7 @@ def main() -> None:
     output = extract_state(trace_text, source_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `xarray/tests/qa/concat_missing_var_index_state_test.py`, class "
             "`TestConcatMissingVarIndexStateHardQA`, method "

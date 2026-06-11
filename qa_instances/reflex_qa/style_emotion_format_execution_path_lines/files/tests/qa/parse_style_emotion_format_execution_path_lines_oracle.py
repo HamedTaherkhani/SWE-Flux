@@ -65,7 +65,7 @@ def main() -> None:
 
     output = extract_execution_path(Path(args.trace_log).read_text(encoding="utf-8"))
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/style_emotion_format_execution_path_lines_test.py`, class "
             "`TestStyleEmotionFormatExecutionPathLinesQA`, method "

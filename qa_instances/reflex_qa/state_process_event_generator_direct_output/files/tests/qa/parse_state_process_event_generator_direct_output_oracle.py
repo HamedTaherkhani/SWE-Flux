@@ -82,7 +82,7 @@ def main() -> None:
 
     oracle_answer = extract_result(Path(args.pytest_log))
     oracle = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": QUESTION,
         "template_answer": TEMPLATE_ANSWER,
         "oracle_answer": oracle_answer,

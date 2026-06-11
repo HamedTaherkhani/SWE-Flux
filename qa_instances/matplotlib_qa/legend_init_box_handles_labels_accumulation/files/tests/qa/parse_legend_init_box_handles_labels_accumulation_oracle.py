@@ -87,7 +87,7 @@ def main() -> None:
     output = extract_handles_and_labels_state(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/legend_init_box_handles_labels_accumulation_test.py`, class "
             "`TestLegendInitBoxHandlesLabelsAccumulationQA`, method "

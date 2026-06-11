@@ -132,7 +132,7 @@ def main() -> None:
         trace_text, defs_by_line, uses_by_line, tracked_vars, param_names)
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `test/qa/parse_iso8601_def_use_pairs_test.py`, class "
             "`TestParseIso8601DefUsePairsQA`, method "

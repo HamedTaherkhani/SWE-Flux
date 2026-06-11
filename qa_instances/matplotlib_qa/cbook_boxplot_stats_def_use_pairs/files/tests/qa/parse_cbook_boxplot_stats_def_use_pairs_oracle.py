@@ -146,7 +146,7 @@ def main() -> None:
     var_list = ", ".join(f"`{v}`" for v in tracked_names_sorted)
 
     qa = {
-        "question_kind": "S5_DataFlow",
+        "question_kind": "S4_DataFlow",
         "question": (
             "Use `tests/qa/cbook_boxplot_stats_def_use_pairs_test.py`, class "
             "`TestCbookBoxplotStatsDefUsePairsQA`, method "

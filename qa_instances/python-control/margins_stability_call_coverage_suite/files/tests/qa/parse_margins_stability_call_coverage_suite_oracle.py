@@ -87,7 +87,7 @@ def main() -> None:
     answer = extract_call_coverage(trace_text)
 
     qa = {
-        "question_kind": "M2_InterProceduralCFG",
+        "question_kind": "M6_InterProceduralCFG",
         "question": (
             "Run the full test suite in "
             "`tests/qa/margins_stability_call_coverage_suite_test.py` "

@@ -59,7 +59,7 @@ def main() -> None:
     call_count = sum(1 for c in calls if c["func"] == normalize_func_identifier(TARGET_FUNCTION))
 
     qa = {
-            "question_kind": "S2_InterProceduralCFG",
+            "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `keras/src/test/optimizers/optimizers_call_frequency_clip_by_norm_branch_test.py`, "
             "class `OptimizersCallFrequencyClipByNormBranchQATest`, method "

@@ -77,7 +77,7 @@ def main():
     args = parser.parse_args()
     dependencies_by_test = extract(Path(args.trace_log).read_text(encoding="utf-8"))
     qa = {
-        "question_kind": "M5_DataFlow",
+        "question_kind": "M4_DataFlow",
         "question": (
             "Run the full test suite in `tests/qa/optimal_process_constraints_dependency_variability_suite_test.py` "
             "(all 10 test methods in `TestProcessConstraintsDependencyVariabilityQA`, in file order: "

@@ -49,7 +49,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `faker_qa/generator_parse_format_call_frequency_decoys/files/testcase.py`, class "
             "`TestGeneratorParseFormatCallFrequencyDecoysQA`, method "

@@ -168,7 +168,7 @@ def main() -> None:
     bounds = extract_output(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/legend_bbox_anchor_offset_state_deep_test.py`, class "
             "`TestLegendBboxAnchorOffsetStateDeepQA`, method "

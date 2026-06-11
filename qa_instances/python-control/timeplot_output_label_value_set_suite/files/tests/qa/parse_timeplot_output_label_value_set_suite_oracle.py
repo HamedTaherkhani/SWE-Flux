@@ -56,7 +56,7 @@ def main() -> None:
 
     answer = extract_value_set(Path(args.trace_log).read_text(encoding="utf-8"))
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Run the full test suite in "
             "`tests/qa/timeplot_output_label_value_set_suite_test.py` (all 10 "

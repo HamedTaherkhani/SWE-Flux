@@ -56,7 +56,7 @@ def main() -> None:
     sequence = extract_dispatch_chronology(trace_text)
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `tests/qa/testcase.py`, class "
             "`TestLanguageExtensionsForEachValueCreateDispatchQA`, "

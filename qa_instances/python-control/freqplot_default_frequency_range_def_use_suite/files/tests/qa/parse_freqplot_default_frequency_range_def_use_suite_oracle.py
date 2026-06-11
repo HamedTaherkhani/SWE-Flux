@@ -164,7 +164,7 @@ def main() -> None:
 
     tracked_vars = ", ".join(f"`{name}`" for name in sorted(TRACKED_VARS))
     qa = {
-        "question_kind": "M5_DataFlow",
+        "question_kind": "M4_DataFlow",
         "question": (
             "Run the full test suite in "
             "`tests/qa/freqplot_default_frequency_range_def_use_suite_test.py` "

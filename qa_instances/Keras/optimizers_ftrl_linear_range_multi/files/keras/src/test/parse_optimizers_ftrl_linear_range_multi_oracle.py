@@ -39,7 +39,7 @@ def main() -> None:
     observed_max = max(values)
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Use `keras/src/test/optimizers/ftrl_linear_range_multi_test.py`, class "
             "`FtrlLinearRangeMultiQATest`, and all 12 test methods in this class. "

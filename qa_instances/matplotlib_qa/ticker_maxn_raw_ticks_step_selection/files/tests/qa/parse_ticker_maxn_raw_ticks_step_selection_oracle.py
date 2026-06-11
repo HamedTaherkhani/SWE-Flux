@@ -104,7 +104,7 @@ def main() -> None:
     output = extract_step_selection_state(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/ticker_maxn_raw_ticks_step_selection_test.py`, class "
             "`TestTickerMaxNRawTicksStepSelectionQA`, method "

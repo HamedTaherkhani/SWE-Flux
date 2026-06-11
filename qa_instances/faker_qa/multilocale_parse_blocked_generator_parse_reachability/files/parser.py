@@ -50,7 +50,7 @@ def main() -> None:
     )
 
     qa = {
-        "question_kind": "S2_InterProceduralCFG",
+        "question_kind": "S6_InterProceduralCFG",
         "question": (
             "Use `faker_qa/multilocale_parse_blocked_generator_parse_reachability/files/testcase.py`, class "
             "`TestMultilocaleParseBlockedGeneratorParseReachabilityQA`, method "

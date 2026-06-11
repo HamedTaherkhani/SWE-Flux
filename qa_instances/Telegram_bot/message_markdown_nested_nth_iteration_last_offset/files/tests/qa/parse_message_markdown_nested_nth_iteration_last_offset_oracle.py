@@ -128,7 +128,7 @@ def main() -> None:
     answer = extract_nth_iteration_value(trace_text)
 
     qa = {
-        "question_kind": "S3_Loops",
+        "question_kind": "S2_Loops",
         "question": (
             "Use `tests/qa/message_markdown_nested_nth_iteration_last_offset_test.py`, class "
             "`TestMessageMarkdownNestedNthIterationLastOffsetQA`, method "

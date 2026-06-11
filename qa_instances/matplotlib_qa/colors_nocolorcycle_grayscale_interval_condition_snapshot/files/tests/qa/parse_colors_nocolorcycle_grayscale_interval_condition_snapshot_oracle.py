@@ -77,7 +77,7 @@ def main() -> None:
     oracle_answer = extract_condition_snapshot(trace_text)
 
     qa = {
-        "question_kind": "M4_ProgramState",
+        "question_kind": "M3_ProgramState",
         "question": (
             "Use `tests/qa/colors_nocolorcycle_grayscale_interval_condition_snapshot_test.py`, class "
             "`TestColorsNocolorcycleGrayscaleIntervalConditionSnapshotQA` (all of its test methods). "

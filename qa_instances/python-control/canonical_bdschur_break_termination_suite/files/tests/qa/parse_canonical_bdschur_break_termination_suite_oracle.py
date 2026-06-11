@@ -97,7 +97,7 @@ def main() -> None:
     answer = extract_break_tests(Path(args.trace_log).read_text(encoding="utf-8"))
 
     qa = {
-        "question_kind": "M3_Loops",
+        "question_kind": "M2_Loops",
         "question": (
             "Run the full test suite in "
             "`tests/qa/canonical_bdschur_break_termination_suite_test.py` "

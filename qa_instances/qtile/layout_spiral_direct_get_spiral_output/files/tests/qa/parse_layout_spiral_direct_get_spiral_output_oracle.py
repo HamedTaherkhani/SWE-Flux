@@ -52,7 +52,7 @@ def main() -> None:
     output = extract_output(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `tests/qa/layout_spiral_direct_get_spiral_output_test.py`, class "
             "`TestLayoutSpiralDirectGetSpiralOutputQA`, method "

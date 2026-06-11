@@ -50,7 +50,7 @@ def main() -> None:
     snapshot = extract_snapshot(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `test/qa/jsinterpreter_first_statement_inputs_test.py`, class "
             "`TestJsInterpreterFirstStatementInputsQA`, method "

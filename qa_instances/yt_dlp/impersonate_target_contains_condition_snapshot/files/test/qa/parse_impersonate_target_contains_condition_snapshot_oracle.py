@@ -95,7 +95,7 @@ def main() -> None:
     output = extract_snapshot(trace_text)
 
     qa = {
-        "question_kind": "S4_ProgramState",
+        "question_kind": "S3_ProgramState",
         "question": (
             "Use `test/qa/impersonate_target_contains_condition_snapshot_test.py`, class "
             "`TestImpersonateTargetContainsConditionSnapshotQA`, method "
