@@ -1,77 +1,27 @@
-## Results (faker_qa + Keras, combined)
+## Evaluation Accuracy (%) per Repository across LLMs
 
-Per model-tool, per question-kind success rate on the combined `faker_qa` and `Keras`
-instances.
+| Model | Keras | Sympy | Telegram-bot | Cfnlint | Faker | Matplotlib | Pybamm | Xarray | Python-control | Qtile | Reflex | Yt-dlp | Overall |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| GPT-5.4 | **62.50** | **25.64** | **52.50** | **65.00** | **38.46** | **35.00** | **12.50** | **50.00** | **17.07** | 15.00 | **29.27** | **50.00** | **37.71** |
+| GPT-5.3-Codex | 47.50 | 23.08 | 47.50 | 60.00 | 35.90 | 32.50 | 7.50 | 45.00 | **17.07** | **20.00** | 24.39 | 45.00 | 33.75 |
+| GPT-OSS-20B | 30.00 | 12.82 | 30.00 | 35.00 | 28.21 | 25.00 | 5.00 | 25.00 | 4.88 | 7.50 | 17.07 | 27.50 | 20.62 |
+| Gemma-4-4B | 27.50 | 12.82 | 12.50 | 30.00 | 20.51 | 32.50 | 0.00 | 10.00 | 14.63 | 0.00 | 19.51 | 27.50 | 17.29 |
+| Gemma-4-31B | 32.50 | 20.51 | 22.50 | 27.50 | 20.51 | 20.00 | 5.00 | 32.50 | 2.44 | 2.50 | 7.32 | 37.50 | 19.17 |
 
-| tool | vendor | model | question kind | total | success rate |
-|---|---|---|---|---|---|
-| cursor |  | gpt-5.3-codex | C1_IntraProceduralCFG | 3 | 100 |
-| cursor |  | gpt-5.3-codex | C2_InterProceduralCFG | 20 | 75 |
-| cursor |  | gpt-5.3-codex | C3_Loops | 2 | 100 |
-| cursor |  | gpt-5.3-codex | C4_ProgramState | 20 | 95 |
-| cursor |  | gpt-5.3-codex | C5_DataFlow | 10 | 100 |
-| cursor |  | gpt-5.3-codex | C6_Exceptions | 8 | 100 |
-| cursor |  | gpt-5.3-codex | M1_IntraProceduralCFG | 2 | 50 |
-| cursor |  | gpt-5.3-codex | M4_ProgramState | 4 | 25 |
-| cursor |  | gpt-5.3-codex | M7_Invariants | 10 | 100 |
-| cursor |  | gpt-5.3-codex-high | C1_IntraProceduralCFG | 3 | 100 |
-| cursor |  | gpt-5.3-codex-high | C2_InterProceduralCFG | 14 | 57.14 |
-| cursor |  | gpt-5.3-codex-high | C4_ProgramState | 9 | 100 |
-| cursor |  | gpt-5.3-codex-high | C6_Exceptions | 2 | 100 |
-| cursor |  | gpt-5.3-codex-high | M1_IntraProceduralCFG | 1 | 100 |
-| cursor |  | gpt-5.3-codex-high | M4_ProgramState | 3 | 66.67 |
-| cursor |  | gpt-5.3-codex-high | M7_Invariants | 8 | 100 |
-| llm | fireworks | gpt-oss-20b | C1_IntraProceduralCFG | 3 | 66.67 |
-| llm | fireworks | gpt-oss-20b | C2_InterProceduralCFG | 20 | 20 |
-| llm | fireworks | gpt-oss-20b | C3_Loops | 2 | 0 |
-| llm | fireworks | gpt-oss-20b | C4_ProgramState | 20 | 5 |
-| llm | fireworks | gpt-oss-20b | C5_DataFlow | 10 | 0 |
-| llm | fireworks | gpt-oss-20b | C6_Exceptions | 8 | 50 |
-| llm | fireworks | gpt-oss-20b | M1_IntraProceduralCFG | 2 | 50 |
-| llm | fireworks | gpt-oss-20b | M4_ProgramState | 4 | 25 |
-| llm | fireworks | gpt-oss-20b | M7_Invariants | 10 | 80 |
-| llm | gemini | gemini-3.5-flash | C1_IntraProceduralCFG | 3 | 100 |
-| llm | gemini | gemini-3.5-flash | C2_InterProceduralCFG | 20 | 45 |
-| llm | gemini | gemini-3.5-flash | C3_Loops | 2 | 0 |
-| llm | gemini | gemini-3.5-flash | C4_ProgramState | 20 | 50 |
-| llm | gemini | gemini-3.5-flash | C5_DataFlow | 10 | 50 |
-| llm | gemini | gemini-3.5-flash | C6_Exceptions | 8 | 37.5 |
-| llm | gemini | gemini-3.5-flash | M1_IntraProceduralCFG | 2 | 50 |
-| llm | gemini | gemini-3.5-flash | M4_ProgramState | 4 | 50 |
-| llm | gemini | gemini-3.5-flash | M7_Invariants | 10 | 100 |
-| llm | openai | gpt-5.3-codex | C1_IntraProceduralCFG | 3 | 100 |
-| llm | openai | gpt-5.3-codex | C2_InterProceduralCFG | 20 | 45 |
-| llm | openai | gpt-5.3-codex | C3_Loops | 2 | 0 |
-| llm | openai | gpt-5.3-codex | C4_ProgramState | 20 | 10 |
-| llm | openai | gpt-5.3-codex | C5_DataFlow | 10 | 0 |
-| llm | openai | gpt-5.3-codex | C6_Exceptions | 8 | 62.5 |
-| llm | openai | gpt-5.3-codex | M1_IntraProceduralCFG | 2 | 50 |
-| llm | openai | gpt-5.3-codex | M4_ProgramState | 4 | 25 |
-| llm | openai | gpt-5.3-codex | M7_Invariants | 10 | 100 |
-| llm | openai | gpt-5.4-2026-03-05 | C1_IntraProceduralCFG | 3 | 66.67 |
-| llm | openai | gpt-5.4-2026-03-05 | C2_InterProceduralCFG | 20 | 35 |
-| llm | openai | gpt-5.4-2026-03-05 | C3_Loops | 2 | 0 |
-| llm | openai | gpt-5.4-2026-03-05 | C4_ProgramState | 20 | 35 |
-| llm | openai | gpt-5.4-2026-03-05 | C5_DataFlow | 10 | 0 |
-| llm | openai | gpt-5.4-2026-03-05 | C6_Exceptions | 8 | 75 |
-| llm | openai | gpt-5.4-2026-03-05 | M1_IntraProceduralCFG | 2 | 50 |
-| llm | openai | gpt-5.4-2026-03-05 | M4_ProgramState | 4 | 25 |
-| llm | openai | gpt-5.4-2026-03-05 | M7_Invariants | 10 | 100 |
-| llm | vllm | gemm4-31b | C1_IntraProceduralCFG | 3 | 100 |
-| llm | vllm | gemm4-31b | C2_InterProceduralCFG | 20 | 20 |
-| llm | vllm | gemm4-31b | C3_Loops | 2 | 0 |
-| llm | vllm | gemm4-31b | C4_ProgramState | 20 | 10 |
-| llm | vllm | gemm4-31b | C5_DataFlow | 10 | 0 |
-| llm | vllm | gemm4-31b | C6_Exceptions | 8 | 37.5 |
-| llm | vllm | gemm4-31b | M1_IntraProceduralCFG | 2 | 50 |
-| llm | vllm | gemm4-31b | M4_ProgramState | 4 | 25 |
-| llm | vllm | gemm4-31b | M7_Invariants | 10 | 60 |
-| llm | vllm | gemma4-4b | C1_IntraProceduralCFG | 3 | 66.67 |
-| llm | vllm | gemma4-4b | C2_InterProceduralCFG | 20 | 20 |
-| llm | vllm | gemma4-4b | C3_Loops | 2 | 0 |
-| llm | vllm | gemma4-4b | C4_ProgramState | 20 | 5 |
-| llm | vllm | gemma4-4b | C5_DataFlow | 10 | 0 |
-| llm | vllm | gemma4-4b | C6_Exceptions | 8 | 0 |
-| llm | vllm | gemma4-4b | M1_IntraProceduralCFG | 2 | 50 |
-| llm | vllm | gemma4-4b | M4_ProgramState | 4 | 25 |
-| llm | vllm | gemma4-4b | M7_Invariants | 10 | 60 |
+## Evaluation Accuracy (%) per Question Kind
+
+| Question Kind | GPT-5.4 | GPT-5.3-Codex | GPT-OSS-20B | Gemma-4-4B | Gemma-4-31B | Avg. |
+|---|---:|---:|---:|---:|---:|---:|
+| S1 Intra-procedural CFG | **69.57** | 65.22 | 47.83 | 43.48 | 43.48 | 53.92 |
+| S2 Loops | 28.57 | 28.57 | 21.43 | 28.57 | **42.86** | 30.00 |
+| S3 Program State | **48.11** | 36.79 | 13.21 | 14.15 | 15.09 | 25.47 |
+| S4 Dataflow | **6.78** | 0.00 | 1.69 | 0.00 | 0.00 | 1.69 |
+| S5 Exceptions | **64.29** | **64.29** | 35.71 | 7.14 | 39.29 | 42.14 |
+| S6 Inter-procedural CFG | **25.64** | 24.36 | 11.54 | 8.97 | 11.54 | 16.41 |
+| M1 Intra-procedural CFG | 28.00 | **32.00** | 20.00 | 12.00 | 20.00 | 22.40 |
+| M2 Loops | **53.85** | 46.15 | 38.46 | 30.77 | 38.46 | 41.54 |
+| M3 Program State | **42.86** | 39.29 | 35.71 | 28.57 | 21.43 | 33.57 |
+| M4 Dataflow | 0.00 | **6.06** | 3.03 | 0.00 | 0.00 | 1.82 |
+| M5 Exceptions | **45.45** | 27.27 | 18.18 | 0.00 | 18.18 | 21.82 |
+| M6 Inter-procedural CFG | **15.00** | **15.00** | 0.00 | 10.00 | 0.00 | 8.00 |
+| M7 Invariants | **80.95** | **80.95** | 66.67 | 66.67 | 52.38 | 69.52 |
