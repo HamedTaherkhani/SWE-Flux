@@ -27,15 +27,6 @@ Start there for:
 - Scoring with `evaluate_qa_answers.py`
 
 
-## Perturbation
-
-The [perturbation module](perturbation/README.md) generates harder QA instances
-from existing tests by mutating input values, re-harvesting fresh oracle answers,
-and checking whether a model now fails an instance it previously answered
-correctly. It supports deterministic AST-based perturbations and an 
-LLM proposer.
-
-
 ## Oracle Autoharvesting
 
 Oracle answers are not written by hand. Each instance under [qa_instances/](qa_instances/)
@@ -96,11 +87,17 @@ Results land in `qa_instances/<repo>/qa_artifacts/<instance_id>/`, one folder pe
 - `pytest.log` — output of the test run.
 - `oracle.log` — output of the oracle parse step.
 
-## Citation & License
-
-This project is licensed under the MIT License. See [LICENSE.md](LICENSE.md).
+## Citation & Third-Party Notices
 
 This project references SWE-bench Live benchmark resources and Docker images.
 Those third-party resources are not relicensed by this repository; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license
 notes.
+
+## Perturbation
+
+The [perturbation module](perturbation/README.md) generates harder QA instances
+from existing tests by mutating input values, re-harvesting fresh oracle answers,
+and checking whether a model now fails an instance it previously answered
+correctly. It supports deterministic AST-based perturbations and an LLM
+proposer.
