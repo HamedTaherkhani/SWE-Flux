@@ -27,6 +27,15 @@ Start there for:
 - Scoring with `evaluate_qa_answers.py`
 
 
+## Perturbation
+
+The [perturbation module](perturbation/README.md) generates harder QA instances
+from existing tests by mutating input values, re-harvesting fresh oracle answers,
+and checking whether a model now fails an instance it previously answered
+correctly. It supports deterministic AST-based perturbations and an 
+LLM proposer.
+
+
 ## Oracle Autoharvesting
 
 Oracle answers are not written by hand. Each instance under [qa_instances/](qa_instances/)
@@ -53,6 +62,8 @@ locally. Images are large; expect a one-time pull per repository.
 | qtile           | `starryzhang/sweb.eval.x86_64.qtile_1776_qtile-5206` |
 | cfnlint_qa      | `starryzhang/sweb.eval.x86_64.aws-cloudformation_1776_cfn-lint-4236:latest` |
 | reflex_qa       | `starryzhang/sweb.eval.x86_64.reflex-dev_1776_reflex-5081` |
+| python-control  | `starryzhang/sweb.eval.x86_64.python-control_1776_python-control-1142` |
+| pybamm_qa       | `starryzhang/sweb.eval.x86_64.pybamm-team_1776_pybamm-5122:latest` |
 
 The same mapping is kept in [Repositories.json](Repositories.json).
 
