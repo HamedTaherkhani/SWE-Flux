@@ -88,13 +88,17 @@ class PerturbationConfig:
     run_eval: bool = True
     # Stop trying further (strategy, seed) candidates for an instance once one
     # of them flips the model from pass -> fail.
-    stop_on_first_flip: bool = True
+    stop_on_first_flip: bool = False
     overwrite_existing: bool = False
 
     # -- selection ------------------------------------------------------------
     only_passing: bool = True
     instance_ids: Optional[List[str]] = None  # explicit subset; None = all
     max_instances: Optional[int] = None
+    max_per_repo: Optional[int] = None
+    # Select at most N original instances per oracle/question_kind before
+    # perturbation. This balances attempts across taxonomy categories.
+    sample_per_category: Optional[int] = None
 
     # -- external tooling -----------------------------------------------------
     image: Optional[str] = None  # override IMAGE for run_qa_fromhost.sh
@@ -115,11 +119,10 @@ class PerturbationConfig:
     )
     explore_seeds: List[int] = field(default_factory=lambda: list(range(8)))
     explore_budget: int = 12          # max harvest attempts per source instance
-    explore_max_keep: int = 4         # max distinct kept candidates per instance
-    explore_require_new_coverage: bool = True  # keep only if it hits new branches
-    # Acceptance criterion for a harvested candidate:
-    #   "coverage" -> keep if it reaches new branches (novelty search)
-    #   "oracle"   -> keep if the harvested oracle_answer differs from the original
+    explore_max_keep: int = 4         # deprecated; harvested candidates are all saved
+    explore_require_new_coverage: bool = True  # deprecated as a retention gate
+    # Deprecated as a retention gate. Harvested candidates are saved; coverage,
+    # oracle-change, and flip are recorded as report booleans.
     accept_criterion: str = "coverage"
     explore_baseline: bool = True     # harvest the original once for a coverage baseline
     # Source for parsing the function under test for thresholds. By default the

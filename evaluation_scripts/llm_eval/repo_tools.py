@@ -334,6 +334,20 @@ class ReadOnlyRepoTools:
         p = Path(raw)
         if p.is_absolute():
             _add_candidate(p)
+            parts = p.parts
+            if "testbed" in parts:
+                idx = parts.index("testbed")
+                rel_parts = parts[idx + 1:]
+                if rel_parts:
+                    testbed_rel = Path(*rel_parts)
+                    _add_candidate(self.repo_root / testbed_rel)
+                    _add_candidate(self.repo_root / "src" / testbed_rel)
+                    if testbed_rel.parts and testbed_rel.parts[0].lower() in known_prefixes:
+                        stripped = Path(*testbed_rel.parts[1:]) if len(testbed_rel.parts) > 1 else Path(".")
+                        _add_candidate(self.repo_root / stripped)
+                        _add_candidate(self.repo_root / "src" / stripped)
+                else:
+                    _add_candidate(self.repo_root)
             # Some model outputs duplicate repo folder prefix: <repo>/<repo>/...
             resolved_abs = p.resolve(strict=False)
             try:
@@ -348,6 +362,7 @@ class ReadOnlyRepoTools:
                 pass
         else:
             _add_candidate(self.repo_root / p)
+            _add_candidate(self.repo_root / "src" / p)
             _add_candidate(self.instance_dir / p)
             _add_candidate(self.instance_dir / "files" / p)
 
@@ -359,6 +374,7 @@ class ReadOnlyRepoTools:
                 if first in known_prefixes:
                     stripped = Path(*parts[1:])
                     _add_candidate(self.repo_root / stripped)
+                    _add_candidate(self.repo_root / "src" / stripped)
                     _add_candidate(self.instance_dir / stripped)
                     _add_candidate(self.instance_dir / "files" / stripped)
             elif len(parts) == 1 and parts[0].lower() in known_prefixes:

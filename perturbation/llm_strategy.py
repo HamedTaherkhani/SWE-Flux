@@ -81,14 +81,22 @@ under test.
 """
 
 
+_FINAL_VARIANTS_PROMPT = """\
+You already signaled DONE_WITH_FILE_READING. Tool phase is closed.
+Return ONLY the requested complete Python test file variant(s), separated by
+the required separator line if more than one variant is requested. Do not output
+JSON, markdown fences, or explanations.
+"""
+
+
 @dataclass
 class LLMPerturbationConfig:
     provider: str = "openai"
     model: str = "gpt-5.4-2026-03-05"
     n: int = 5
-    temperature: float = 0.7  # some diversity across variants
-    max_read_lines: int = 250
-    repo_map_mode: str = "cheap_repomap"  # cheaper than full repomap for this task
+    temperature: float = 0  # some diversity across variants
+    max_read_lines: int = 300
+    repo_map_mode: str = "repomap" 
 
 
 def _strip_code_fences(text: str) -> str:
@@ -155,6 +163,7 @@ class LLMPerturber:
             model=self.config.model,
             temperature=self.config.temperature,
             trace=self.trace,
+            final_answer_prompt=_FINAL_VARIANTS_PROMPT,
         )
 
         system_prompt = _SYSTEM_PROMPT.format(sep=VARIANT_SEPARATOR)

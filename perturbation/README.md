@@ -99,25 +99,27 @@ conda run -n repo python -m perturbation --repo python-control --llm-perturb \
     --report perturbation/generated_llm/llm_python-control.json
 ```
 
-## Acceptance gates (`--explore` / `--llm-perturb`)
+## Gate annotations (`--explore` / `--llm-perturb`)
 
-Both engines run a budgeted search per instance and keep candidates by a gate:
+Both engines run a budgeted search per instance and save every candidate whose
+oracle harvest succeeds. Coverage, oracle-change, and flip are recorded for each
+saved candidate; they are no longer used to discard harvested perturbations.
 
-- `--accept-on coverage` (default): keep candidates that reach **new branches**
-  (novel coverage signature vs the original's baseline). Reads the execution
-  `trace.log` (produced by `trace_plugin.py`).
-- `--accept-on oracle-change`: keep candidates whose **harvested answer differs**
-  from the original (dedups identical/unchanged oracles).
-- `--accept-on flip`: ignore the above and keep **only** candidates the model
-  goes **pass → fail** on. Runs inference+eval first, then rolls back non-flips.
-  Requires inference + eval enabled (a flip needs the model's answer); it scores
-  every harvested candidate, so it is the most API-costly gate.
+- `coverage`: whether the perturbed trace reaches lines/edges not in the
+  original baseline trace.
+- `oracle_change`: whether the harvested `oracle_answer` differs from the
+  original oracle.
+- `flip`: whether the model goes **pass -> fail** after perturbation.
+
+Each saved instance also gets `perturbation_result.json` beside its oracle, and
+`--report` writes a run-level JSON with all attempts, all generated instances,
+and `question_kind_counts` for attempts / generated instances / harvest failures.
 
 ```bash
-python -m perturbation --repo Keras --explore \
+python -m perturbation --repos Keras matplotlib_qa --explore \
     --explore-strategies boundary threshold_straddle special_value \
-    --explore-budget 12 --explore-max-keep 4 --accept-on coverage \
-    --report perturbation/generated/reports/explore_keras.json
+    --explore-budget 12 --sample-per-category 3 \
+    --report perturbation/generated/reports/explore_sampled.json
 ```
 
 ### Source materialization (for thresholds + LLM tools)
@@ -149,11 +151,12 @@ python -m perturbation --repo Keras --strategies boundary --seeds 7 13 \
     --report perturbation/generated/reports/keras.json
 ```
 
-Keep only model-flipping instances (AST or LLM):
+Generate and report all harvested instances (AST or LLM), including which ones
+flip the model:
 
 ```bash
-python -m perturbation --repo matplotlib_qa --explore --accept-on flip \
-    --include-failing --max-instances 10
+python -m perturbation --repo matplotlib_qa --explore \
+    --max-instances 10
 ```
 
 ### Key flags
@@ -168,13 +171,13 @@ python -m perturbation --repo matplotlib_qa --explore --accept-on flip \
 | `--assertion-policy` | `neutralize` (default) or `keep` |
 | `--explore` | Coverage-guided budgeted search (multiple kept per instance) |
 | `--explore-strategies` / `--explore-seeds` | Operators / seeds tried while exploring |
-| `--explore-budget` / `--explore-max-keep` | Max harvests / kept candidates per instance |
-| `--accept-on` | `coverage` (default), `oracle-change`, or `flip` |
+| `--explore-budget` | Max perturbation attempts per instance |
+| `--accept-on` / `--explore-max-keep` | Deprecated; harvested perturbations are all saved |
 | `--llm-perturb` | Use the LLM proposer (run under the `repo` conda env) |
 | `--llm-n` / `--llm-threads` | Variants per instance; parallel generation threads |
 | `--llm-provider` / `--llm-model` / `--llm-temperature` | LLM overrides (default: `--vendor`/`--model`) |
 | `--include-failing` | Also perturb already-failing instances |
-| `--instance-ids` / `--max-instances` | Restrict the source instances |
+| `--instance-ids` / `--max-instances` / `--max-per-repo` | Restrict the source instances |
 | `--no-harvest/-inference/-eval` | Skip stages (dry runs / staging) |
 | `--target-source-root` / `--no-materialize-source` | Source for thresholds + LLM tools |
 | `--snapshot-root` / `--no-cleanup-snapshot` | Materialized-source location / keep it |
@@ -183,12 +186,13 @@ python -m perturbation --repo matplotlib_qa --explore --accept-on flip \
 | `--inference-extra ...` | Pass-through args to the LLM runner (must be last) |
 | `--output-root` | Where generated instances + evaluations are stored |
 | `--progress` / `--no-progress` | Live per-instance/per-attempt progress (default on) |
-| `--report PATH` | Write generated instances to JSON (failed/dropped excluded) |
+| `--repos` | Run over multiple repos; use `all` for every repo under `qa_instances/` |
+| `--sample-per-category N` | Before perturbation, select up to N original instances per `question_kind` category across all selected repos |
+| `--report PATH` | Write all attempts, generated instances, and gate annotations to JSON |
 
-Progress is printed live (one line per attempt). The final summary and the
-`--report` JSON list **only the instances actually generated** — broken
-perturbations (harvest failed), explore drops (no new coverage / unchanged
-oracle), and flip-gate non-flips are counted but not written.
+Progress is printed live (one line per attempt). The final summary lists saved
+instances; the `--report` JSON includes all attempts and marks
+`oracle_harvest_succeeded` for each one.
 
 ## Repository fit (empirical)
 

@@ -4,7 +4,8 @@
 (``trace.log``). We parse it into a coverage *signature* -- the set of executed
 ``(file, line)`` locations and consecutive-line *edges* within the traced
 functions -- which the explorer uses as a fitness signal to steer perturbations
-toward new branches/paths.
+toward new branches/paths. We also retain the ordered event sequence so exact
+execution-path equality can be checked separately from coverage equality.
 """
 
 from __future__ import annotations
@@ -32,17 +33,19 @@ def _normalize_path(path: str) -> str:
 
 Location = Tuple[str, int]
 Edge = Tuple[str, int, int]
+TraceEvent = Tuple[str, int, str, str]
 
 
 @dataclass(frozen=True)
 class CoverageSignature:
-    """A hashable summary of which lines/edges executed."""
+    """A hashable summary of coverage plus the exact trace event sequence."""
 
     lines: FrozenSet[Location] = field(default_factory=frozenset)
     edges: FrozenSet[Edge] = field(default_factory=frozenset)
+    events: Tuple[TraceEvent, ...] = field(default_factory=tuple)
 
     def __bool__(self) -> bool:
-        return bool(self.lines)
+        return bool(self.events or self.lines)
 
     def new_lines_vs(self, baseline: "CoverageSignature") -> FrozenSet[Location]:
         return frozenset(self.lines - baseline.lines)
@@ -62,23 +65,28 @@ class CoverageExtractor:
     def extract_text(self, text: str) -> CoverageSignature:
         lines: set[Location] = set()
         edges: set[Edge] = set()
+        events: list[TraceEvent] = []
         last_by_func: dict[str, int] = {}
 
         for raw in text.splitlines():
             m = _TRACE_RE.match(raw)
-            if not m or m.group("event") not in ("line", "call", "return"):
+            if not m:
+                continue
+            event = m.group("event")
+            if event not in ("line", "call", "return", "exception"):
                 continue
             path = _normalize_path(m.group("path"))
             lineno = int(m.group("line"))
             func = m.group("func")
             lines.add((path, lineno))
+            events.append((path, lineno, func, event))
 
             prev = last_by_func.get(func)
             if prev is not None and prev != lineno:
                 edges.add((func, prev, lineno))
             last_by_func[func] = lineno
 
-        return CoverageSignature(frozenset(lines), frozenset(edges))
+        return CoverageSignature(frozenset(lines), frozenset(edges), tuple(events))
 
     def extract_file(self, path: Path) -> Optional[CoverageSignature]:
         try:

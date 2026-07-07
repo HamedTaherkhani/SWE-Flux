@@ -10,6 +10,8 @@ repo's eval image at ``/testbed``. We reuse the project's existing
 
 from __future__ import annotations
 
+import contextlib
+import io
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -55,26 +57,33 @@ class RepoSnapshotManager:
         """
         image = self.image_for(repo)
         if not image:
-            print(f"[snapshot] no image mapping for {repo}; skipping source thresholds")
+            if self.config.progress:
+                print(f"[snapshot] no image mapping for {repo}; skipping source thresholds")
             return None
 
         try:
-            runtime = build_container_runtime("docker")
-            dest, _created = materialize_repo_snapshot(
-                repo_name=repo,
-                image=image,
-                repo_instances_dir=self.source.eval_root / repo,
-                mount_root=self.root,
-                refresh=True,
-                container_runtime=runtime,
-            )
+            with contextlib.ExitStack() as stack:
+                if not self.config.progress:
+                    stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                    stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+                runtime = build_container_runtime("docker")
+                dest, _created = materialize_repo_snapshot(
+                    repo_name=repo,
+                    image=image,
+                    repo_instances_dir=self.source.eval_root / repo,
+                    mount_root=self.root,
+                    refresh=True,
+                    container_runtime=runtime,
+                )
             return dest
         except Exception as exc:  # noqa: BLE001
-            print(f"[snapshot] materialization failed for {repo}: {exc}")
+            if self.config.progress:
+                print(f"[snapshot] materialization failed for {repo}: {exc}")
             return None
 
     def cleanup(self, repo: str) -> None:
         dest = self.snapshot_dir(repo)
         if dest.exists():
             shutil.rmtree(dest)
-            print(f"[snapshot] removed {dest}")
+            if self.config.progress:
+                print(f"[snapshot] removed {dest}")

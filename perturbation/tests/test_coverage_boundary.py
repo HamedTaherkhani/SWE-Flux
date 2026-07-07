@@ -26,6 +26,45 @@ def test_coverage_extracts_lines_and_edges():
     assert all(not p.startswith("/testbed") for p, _ in sig.lines)
     # consecutive lines within the same function form edges
     assert ("keras.src.m.relu", 11, 12) in sig.edges
+    # ordered events are retained for exact execution-path comparison
+    assert sig.events[0] == ("keras/src/m.py", 10, "keras.src.m.relu", "call")
+    assert sig.events[-1] == ("keras/src/m.py", 11, "keras.src.m.relu", "return")
+
+
+def test_coverage_keeps_exact_event_sequence():
+    loop_twice = """\
+2026-06-15 18:25:30.123 /testbed/pkg/m.py:10 pkg.m.f event=call locals={}
+2026-06-15 18:25:30.124 /testbed/pkg/m.py:11 pkg.m.f event=line locals={}
+2026-06-15 18:25:30.125 /testbed/pkg/m.py:10 pkg.m.f event=line locals={}
+2026-06-15 18:25:30.126 /testbed/pkg/m.py:11 pkg.m.f event=line locals={}
+"""
+    loop_thrice = """\
+2026-06-15 18:25:30.123 /testbed/pkg/m.py:10 pkg.m.f event=call locals={}
+2026-06-15 18:25:30.124 /testbed/pkg/m.py:11 pkg.m.f event=line locals={}
+2026-06-15 18:25:30.125 /testbed/pkg/m.py:10 pkg.m.f event=line locals={}
+2026-06-15 18:25:30.126 /testbed/pkg/m.py:11 pkg.m.f event=line locals={}
+2026-06-15 18:25:30.127 /testbed/pkg/m.py:10 pkg.m.f event=line locals={}
+2026-06-15 18:25:30.128 /testbed/pkg/m.py:11 pkg.m.f event=line locals={}
+"""
+    a = CoverageExtractor().extract_text(loop_twice)
+    b = CoverageExtractor().extract_text(loop_thrice)
+    assert a.lines == b.lines
+    assert a.edges == b.edges
+    assert a.events != b.events
+
+
+def test_coverage_keeps_exception_events():
+    trace = """\
+2026-06-15 18:25:30.123 /testbed/pkg/m.py:10 pkg.m.f event=exception exc=ValueError locals={}
+2026-06-15 18:25:30.124 /testbed/pkg/m.py:12 pkg.m.f event=exception exc=TypeError locals={}
+"""
+    sig = CoverageExtractor().extract_text(trace)
+    assert sig.events == (
+        ("pkg/m.py", 10, "pkg.m.f", "exception"),
+        ("pkg/m.py", 12, "pkg.m.f", "exception"),
+    )
+    assert ("pkg/m.py", 10) in sig.lines
+    assert ("pkg.m.f", 10, 12) in sig.edges
 
 
 def test_coverage_new_lines_vs_baseline():
