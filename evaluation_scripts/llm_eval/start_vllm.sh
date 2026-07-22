@@ -43,6 +43,10 @@ api_base_url() {
   echo "http://${VLLM_CLIENT_HOST}:${VLLM_PORT}/v1"
 }
 
+models_url() {
+  echo "$(api_base_url)/models"
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -95,6 +99,39 @@ is_running() {
 health_ok() {
   # vLLM /health payload varies by version; HTTP 200 is enough.
   curl -fsS "$(health_url)" >/dev/null 2>&1
+}
+
+served_model_names() {
+  local payload
+  payload="$(curl -fsS "$(models_url)" 2>/dev/null)" || return 1
+  printf '%s' "$payload" | "$PYTHON_BIN" -c '
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+
+for model in payload.get("data", []):
+    model_id = model.get("id")
+    if model_id:
+        print(model_id)
+' 2>/dev/null
+}
+
+served_model_ok() {
+  served_model_names | grep -Fx -- "$VLLM_ALIAS" >/dev/null
+}
+
+served_model_summary() {
+  local names
+  names="$(served_model_names 2>/dev/null || true)"
+  if [[ -n "$names" ]]; then
+    printf '%s\n' "$names" | awk 'BEGIN { first = 1 } { if (!first) printf ", "; printf "%s", $0; first = 0 }'
+  else
+    printf '<none>'
+  fi
 }
 
 init_conda_shell() {
@@ -157,12 +194,28 @@ start_server() {
     exit 1
   fi
   module --force purge
-  conda activate Triad
+  conda activate /project/def-hemmati-ac/hamedth/conda_envs/Triad_env
   require_model
 
   if is_running; then
-    echo "vLLM already running (pid=$(cat "$PID_FILE"))."
-    return 0
+    local existing_pid
+    existing_pid="$(cat "$PID_FILE")"
+    if served_model_ok; then
+      echo "vLLM already running (pid=$existing_pid, alias=$VLLM_ALIAS)."
+      return 0
+    fi
+    echo "ERROR: vLLM already running (pid=$existing_pid), but it is not serving alias '$VLLM_ALIAS'." >&2
+    echo "Served models: $(served_model_summary)" >&2
+    echo "Run '$0 stop' before starting a different model." >&2
+    exit 1
+  fi
+
+  if health_ok; then
+    echo "ERROR: vLLM API is already reachable at $(api_base_url), but $PID_FILE does not point to it." >&2
+    echo "Refusing to start because requests may hit an unmanaged server." >&2
+    echo "Served models: $(served_model_summary)" >&2
+    echo "Stop the process using port ${VLLM_PORT}, or set VLLM_PORT/VLLM_PID_FILE to match the server you want." >&2
+    exit 1
   fi
 
   mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")"
@@ -181,7 +234,7 @@ start_server() {
   local start_ts
   start_ts="$(date +%s)"
 
-  until health_ok; do
+  until served_model_ok; do
     if ! kill -0 "$pid" 2>/dev/null; then
       echo "ERROR: vLLM process exited during startup. See: $LOG_FILE" >&2
       tail -n 80 "$LOG_FILE" >&2 || true
@@ -245,9 +298,16 @@ status_server() {
     pid="$(cat "$PID_FILE")"
     if health_ok; then
       echo "vLLM running (pid=$pid) and healthy at $(api_base_url)"
+      echo "Served models: $(served_model_summary)"
     else
       echo "vLLM running (pid=$pid) but health endpoint not ready: $(health_url)"
     fi
+    return 0
+  fi
+
+  if health_ok; then
+    echo "vLLM API is reachable at $(api_base_url), but no managed pid file was found at $PID_FILE."
+    echo "Served models: $(served_model_summary)"
     return 0
   fi
 

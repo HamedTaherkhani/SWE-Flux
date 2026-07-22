@@ -131,47 +131,12 @@ MAX_FIRST_CALL_RETRIES = 2
 _SKIP_DIRS = {"shared", "qa_artifacts"}
 
 # ---------------------------------------------------------------------------
-# Gemma 4 tool-call wire format
+# Gemma 4 tool-call normalization
 # ---------------------------------------------------------------------------
-# vLLM's gemma4 tool parser expects assistant tool calls in this exact shape:
-#   <|tool_call>call:NAME{key:<|"|>value<|"|>,num:42}<tool_call|>
-# i.e. bare keys, string values delimited by <|"|>, bare numbers.
-#
-# We bake this wire format into the saved student records so the JSON dataset
-# is self-describing and training does not depend on any Gemma 4-specific
-# chat-template behavior. finetune/data.py applies the same rewrite at load
-# time (idempotent on already-rewritten records).
-_GEMMA4_STR_DELIM = '<|"|>'
-_GEMMA4_TOOL_START = "<|tool_call>"
-_GEMMA4_TOOL_END = "<tool_call|>"
-
-
-def _gemma4_value(v: Any) -> str:
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if v is None:
-        return "null"
-    if isinstance(v, (int, float)):
-        return str(v)
-    if isinstance(v, str):
-        return f"{_GEMMA4_STR_DELIM}{v}{_GEMMA4_STR_DELIM}"
-    if isinstance(v, list):
-        return "[" + ",".join(_gemma4_value(x) for x in v) + "]"
-    if isinstance(v, dict):
-        return "{" + ",".join(f"{k}:{_gemma4_value(x)}" for k, x in v.items()) + "}"
-    return f"{_GEMMA4_STR_DELIM}{v}{_GEMMA4_STR_DELIM}"
-
-
-def _gemma4_tool_call_text(name: str, arguments: Any) -> str:
-    if isinstance(arguments, str):
-        try:
-            args = json.loads(arguments) if arguments else {}
-        except json.JSONDecodeError:
-            args = {}
-    else:
-        args = arguments or {}
-    body = ",".join(f"{k}:{_gemma4_value(v)}" for k, v in args.items())
-    return f"{_GEMMA4_TOOL_START}call:{name}{{{body}}}{_GEMMA4_TOOL_END}"
+# Save student records in OpenAI-style structured tool-call form. Gemma 4's
+# chat template renders this to the wire format vLLM uses at eval time. Do not
+# bake `<|tool_call>...` into assistant content: that makes it easy to train on
+# prose-plus-tool-call turns that vLLM's parser does not handle reliably.
 
 
 def _canonicalize_path(p: str, repo_root: Path, instance_dir: Path, testbed_subdir: str) -> str:
@@ -228,21 +193,40 @@ def _canonicalize_tool_call_paths(
     return out
 
 
-def _rewrite_assistant_tool_calls(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Inline tool_calls into content using Gemma 4 wire format, then drop tool_calls."""
+def _structured_assistant_tool_calls(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep assistant tool calls structured and drop prose from tool-call turns."""
     out: List[Dict[str, Any]] = []
-    for m in messages:
+    for idx, m in enumerate(messages):
         if m.get("role") == "assistant" and m.get("tool_calls"):
-            wire = "".join(
-                _gemma4_tool_call_text(
-                    tc.get("function", {}).get("name", ""),
-                    tc.get("function", {}).get("arguments", "{}"),
+            next_tool_ids = [
+                follow.get("tool_call_id")
+                for follow in messages[idx + 1:]
+                if follow.get("role") == "tool"
+            ]
+            calls = []
+            for call_idx, tc in enumerate(m["tool_calls"]):
+                fn = dict(tc.get("function", {}))
+                args = fn.get("arguments", "{}")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args) if args else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                calls.append(
+                    {
+                        "id": tc.get("id") or (
+                            next_tool_ids[call_idx]
+                            if call_idx < len(next_tool_ids)
+                            else f"call_{idx}_{call_idx}"
+                        ),
+                        "type": tc.get("type", "function"),
+                        "function": {
+                            "name": fn.get("name", ""),
+                            "arguments": args if isinstance(args, dict) else {},
+                        },
+                    }
                 )
-                for tc in m["tool_calls"]
-            )
-            content = (m.get("content") or "")
-            new_content = (content + ("\n" if content.strip() else "") + wire).strip()
-            out.append({"role": "assistant", "content": new_content})
+            out.append({"role": "assistant", "content": "", "tool_calls": calls})
         else:
             out.append(m)
     return out
@@ -1081,8 +1065,8 @@ def _attempt(
     extracted = extract_answer_from_response(final_content)
 
     # Build student training messages: swap system to oracle-free student prompt,
-    # canonicalize tool-call paths to relative form, and rewrite tool_calls into
-    # Gemma 4 wire format inline in content.
+    # canonicalize tool-call paths to relative form, and keep tool calls in the
+    # structured OpenAI/Gemma4 shape the chat template renders natively.
     canonicalized = _canonicalize_tool_call_paths(
         teacher_messages[1:],
         repo_root=repo_root,
@@ -1091,7 +1075,7 @@ def _attempt(
     )
     student_messages: List[Dict[str, Any]] = [
         {"role": "system", "content": make_student_system_prompt()},
-        *_rewrite_assistant_tool_calls(canonicalized),
+        *_structured_assistant_tool_calls(canonicalized),
     ]
 
     return student_messages, extracted

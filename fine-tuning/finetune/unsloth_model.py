@@ -25,6 +25,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
+import os
 from typing import Any, Iterator, List, Tuple
 
 import torch
@@ -36,17 +37,19 @@ logger = logging.getLogger(__name__)
 
 
 @contextlib.contextmanager
-def _force_no_kv_sharing() -> Iterator[None]:
+def _optional_force_no_kv_sharing() -> Iterator[None]:
     """
-    Force num_kv_shared_layers=0 on every config loaded inside this block.
+    Optionally force num_kv_shared_layers=0 for a controlled experiment.
 
-    Unsloth's FastModel.from_pretrained doesn't accept a `config=` override, so
-    we patch transformers.AutoConfig.from_pretrained for the duration of the
-    load. This makes transformers materialize all 42 K/V projections (instead of
-    sharing the top 18), matching the on-disk base checkpoint and vLLM's runtime
-    view — without it the trained adapter is invalid under vLLM for gemma4-4b.
-    See finetune/model.py:_override_kv_sharing for the full rationale.
+    By default we preserve Gemma4's base config. The installed vLLM Gemma4 model
+    uses num_kv_shared_layers in its forward graph, and the working base eval
+    serves gemma4-4b with its original value (18). Changing it here trains an
+    adapter for a different architecture than the one vLLM uses for the base.
     """
+    if os.environ.get("REPOBEHAVE_FORCE_GEMMA4_NO_KV_SHARING", "").strip() != "1":
+        yield
+        return
+
     import transformers
 
     orig = transformers.AutoConfig.from_pretrained
@@ -57,7 +60,8 @@ def _force_no_kv_sharing() -> Iterator[None]:
         text = getattr(cfg, "text_config", cfg)
         if getattr(text, "num_kv_shared_layers", 0):
             logger.info(
-                "Unsloth: overriding num_kv_shared_layers %d -> 0 (vLLM/base match)",
+                "Unsloth: overriding num_kv_shared_layers %d -> 0 "
+                "(REPOBEHAVE_FORCE_GEMMA4_NO_KV_SHARING=1)",
                 text.num_kv_shared_layers,
             )
             text.num_kv_shared_layers = 0
@@ -140,16 +144,14 @@ def load_model_and_tokenizer_unsloth(
         "Loading base model via Unsloth FastModel from %s (max_seq_length=%d, 4bit=%s) ...",
         model_path, max_seq_length, quant.load_in_4bit,
     )
-    # The num_kv_shared_layers=0 override is applied by patching AutoConfig for
-    # the duration of the load (FastModel rejects a `config=` kwarg).
-    with _force_no_kv_sharing():
+    # FastModel rejects a `config=` kwarg, so the optional no-KV-sharing
+    # experiment is implemented by patching AutoConfig during load.
+    with _optional_force_no_kv_sharing():
         model, processor = FastModel.from_pretrained(**load_kwargs)
 
-    # Confirm the override actually took effect; warn loudly if KV-sharing is
-    # still active, because the merged adapter would then be invalid under vLLM.
     _text_cfg = getattr(model.config, "text_config", model.config)
     _shared = getattr(_text_cfg, "num_kv_shared_layers", 0)
-    if _shared:
+    if os.environ.get("REPOBEHAVE_FORCE_GEMMA4_NO_KV_SHARING", "").strip() == "1" and _shared:
         logger.warning(
             "num_kv_shared_layers is still %d after load — the KV-sharing "
             "override did NOT take effect. The merged adapter may be INVALID "
@@ -157,7 +159,7 @@ def load_model_and_tokenizer_unsloth(
             _shared,
         )
     else:
-        logger.info("Confirmed num_kv_shared_layers=0 after load (vLLM-compatible).")
+        logger.info("Loaded Gemma4 with num_kv_shared_layers=%s", _shared)
 
     # Unsloth returns a Processor for multimodal models; unwrap to the text
     # tokenizer, then match the default path's pad/padding normalization so the

@@ -10,11 +10,15 @@ Gemma 4 token boundaries
   User turn     starts with:  <start_of_turn>user\n
   Model turn    starts with:  <start_of_turn>model\n
   Either turn   ends with:    <end_of_turn>\n
+  Tool result   starts with:  <|tool_response>
+  Tool result   ends with:    <tool_response|>
 
 The local collator scans each tokenized conversation for model turns and masks
-everything outside those spans to -100.  This replaces TRL's removed
-DataCollatorForCompletionOnlyLM while keeping the same completion-only
-training objective for preformatted chat transcripts.
+everything outside those spans to -100.  Gemma 4 renders role="tool" messages
+inside the same model/tool protocol block as assistant tool calls, so the
+collator then masks <|tool_response>...<tool_response|> spans back to -100.
+This keeps tool results available as prompt context without training the model
+to emit repository/file-map output as assistant text.
 """
 
 from __future__ import annotations
@@ -52,10 +56,14 @@ class AssistantTurnDataCollator:
         response_template: List[int],
         end_template: List[int],
         max_length: int,
+        ignore_spans: List[tuple[List[int], List[int]]] | None = None,
+        required_label_subsequence: List[int] | None = None,
     ) -> None:
         self.tokenizer = tokenizer
         self.response_template = response_template
         self.end_template = end_template
+        self.ignore_spans = ignore_spans or []
+        self.required_label_subsequence = required_label_subsequence or []
         self.max_length = max_length
         self.pad_token_id = (
             tokenizer.pad_token_id
@@ -63,6 +71,7 @@ class AssistantTurnDataCollator:
             else tokenizer.eos_token_id
         )
         self._warned_no_response = False
+        self._warned_no_required_label = False
 
     @staticmethod
     def _find_subsequence(sequence: List[int], subsequence: List[int], start: int = 0) -> int:
@@ -74,10 +83,33 @@ class AssistantTurnDataCollator:
                 return idx
         return -1
 
+    def _mask_ignored_spans(self, input_ids: List[int], labels: List[int]) -> None:
+        """Mask protocol spans that are prompt/context, not assistant targets."""
+        for start_template, end_template in self.ignore_spans:
+            cursor = 0
+            while cursor < len(input_ids):
+                span_start = self._find_subsequence(input_ids, start_template, cursor)
+                if span_start == -1:
+                    break
+
+                content_start = span_start + len(start_template)
+                span_end = self._find_subsequence(input_ids, end_template, content_start)
+                if span_end == -1:
+                    # Truncated tool results should not contribute partial
+                    # target tokens either.
+                    label_end = len(input_ids)
+                    cursor = len(input_ids)
+                else:
+                    label_end = span_end + len(end_template)
+                    cursor = label_end
+
+                labels[span_start:label_end] = [-100] * (label_end - span_start)
+
     def _assistant_labels(self, input_ids: List[int]) -> List[int]:
         labels = [-100] * len(input_ids)
         cursor = 0
         found_response = False
+        assistant_spans: List[tuple[int, int]] = []
 
         while cursor < len(input_ids):
             response_start = self._find_subsequence(
@@ -93,8 +125,33 @@ class AssistantTurnDataCollator:
             end_start = self._find_subsequence(input_ids, self.end_template, label_start)
             label_end = len(input_ids) if end_start == -1 else end_start + len(self.end_template)
 
-            labels[label_start:label_end] = input_ids[label_start:label_end]
+            assistant_spans.append((label_start, label_end))
             cursor = label_end
+
+        if self.required_label_subsequence:
+            matched_spans = []
+            for start, end in assistant_spans:
+                marker_pos = self._find_subsequence(input_ids, self.required_label_subsequence, start)
+                if marker_pos != -1 and marker_pos < end:
+                    matched_spans.append((start, end))
+            if matched_spans:
+                # Use the last matching span in case the sentinel appears in
+                # the prompt instructions as well as the final answer.
+                start, end = matched_spans[-1]
+                labels[start:end] = input_ids[start:end]
+            elif found_response and not self._warned_no_required_label:
+                logger.warning(
+                    "No assistant span containing the required final-answer "
+                    "marker was found in at least one batch item; that item "
+                    "will contribute no loss. Consider increasing max_seq_length "
+                    "if this happens often."
+                )
+                self._warned_no_required_label = True
+        else:
+            for label_start, label_end in assistant_spans:
+                labels[label_start:label_end] = input_ids[label_start:label_end]
+
+        self._mask_ignored_spans(input_ids, labels)
 
         if not found_response and not self._warned_no_response:
             logger.warning(
@@ -204,7 +261,21 @@ def _discover_chat_boundaries(tokenizer: Any) -> tuple[List[int], List[int]]:
     return response_template, end_template
 
 
-def _build_collator(tokenizer: Any, max_length: int) -> AssistantTurnDataCollator:
+def _tool_response_boundaries(tokenizer: Any) -> tuple[List[int], List[int]] | None:
+    """Return token ids for Gemma-style tool-result spans, if available."""
+    start = tokenizer.encode("<|tool_response>", add_special_tokens=False)
+    end = tokenizer.encode("<tool_response|>", add_special_tokens=False)
+    if not start or not end:
+        return None
+    return start, end
+
+
+def _build_collator(
+    tokenizer: Any,
+    max_length: int,
+    *,
+    final_answer_only_loss: bool = False,
+) -> AssistantTurnDataCollator:
     """
     Build a completion-only data collator that masks non-assistant tokens.
 
@@ -213,11 +284,22 @@ def _build_collator(tokenizer: Any, max_length: int) -> AssistantTurnDataCollato
     tokens the model uses.
     """
     response_ids, end_ids = _discover_chat_boundaries(tokenizer)
+    ignore_spans = []
+    tool_response_span = _tool_response_boundaries(tokenizer)
+    if tool_response_span is not None:
+        ignore_spans.append(tool_response_span)
+    required_label_subsequence = (
+        tokenizer.encode("## Answer", add_special_tokens=False)
+        if final_answer_only_loss
+        else None
+    )
 
     collator = AssistantTurnDataCollator(
         tokenizer=tokenizer,
         response_template=response_ids,
         end_template=end_ids,
+        ignore_spans=ignore_spans,
+        required_label_subsequence=required_label_subsequence,
         max_length=max_length,
     )
     logger.info(
@@ -227,6 +309,26 @@ def _build_collator(tokenizer: Any, max_length: int) -> AssistantTurnDataCollato
         end_ids,
         tokenizer.decode(end_ids),
     )
+    if ignore_spans:
+        logger.info(
+            "AssistantTurnDataCollator — masked protocol spans: %s",
+            [
+                {
+                    "start_ids": start,
+                    "start_decoded": tokenizer.decode(start),
+                    "end_ids": end,
+                    "end_decoded": tokenizer.decode(end),
+                }
+                for start, end in ignore_spans
+            ],
+        )
+    if final_answer_only_loss:
+        logger.info(
+            "AssistantTurnDataCollator — final-answer-only loss enabled; "
+            "required marker ids: %s (decoded: %r)",
+            required_label_subsequence,
+            tokenizer.decode(required_label_subsequence or []),
+        )
     return collator
 
 
@@ -341,7 +443,11 @@ def build_trainer(
     (plus token-accuracy/entropy) is appended to trainer_state.json's
     log_history alongside training losses.
     """
-    collator = _build_collator(tokenizer, cfg.data.max_seq_length)
+    collator = _build_collator(
+        tokenizer,
+        cfg.data.max_seq_length,
+        final_answer_only_loss=cfg.final_answer_only_loss,
+    )
     sft_cfg = _build_sft_config(cfg, has_eval=eval_dataset is not None)
 
     trainer = SFTTrainer(

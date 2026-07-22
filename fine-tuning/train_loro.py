@@ -133,6 +133,11 @@ def _parse_args() -> argparse.Namespace:
                    help="Load the model + LoRA via Unsloth FastModel for a "
                         "larger context window. Hyperparameters and the "
                         "training loop are unchanged.")
+    p.add_argument("--final-answer-only-loss", action="store_true",
+                   help="Compute SFT loss only on the final reasoning/answer "
+                        "assistant turn (the turn containing '## Answer'). "
+                        "Earlier assistant tool calls and tool responses are "
+                        "kept as context but masked from training.")
 
     return p.parse_args()
 
@@ -186,6 +191,7 @@ def _build_cfg_for_fold(args: argparse.Namespace, held_out: str, train_repos: Li
             if args.merge_after_training else None
         ),
         use_unsloth=args.use_unsloth,
+        final_answer_only_loss=args.final_answer_only_loss,
     )
 
 
@@ -224,6 +230,12 @@ def _run_fold(args: argparse.Namespace, held_out: str, all_repos: List[str],
 
     fold_dir.mkdir(parents=True, exist_ok=True)
     cfg = _build_cfg_for_fold(args, held_out, train_repos, fold_dir, max_seq_length)
+    if cfg.final_answer_only_loss:
+        print(
+            "LOSS MODE: final-answer-only "
+            "(only assistant turns containing '## Answer' receive labels)",
+            flush=True,
+        )
 
     logger.info("=" * 72)
     logger.info("FOLD: held-out=%s   train_repos=%s", held_out, train_repos)
@@ -237,6 +249,12 @@ def _run_fold(args: argparse.Namespace, held_out: str, all_repos: List[str],
         from finetune.unsloth_model import load_model_and_tokenizer_unsloth
         model, tokenizer = load_model_and_tokenizer_unsloth(
             cfg.model_path, cfg.lora, cfg.quant, cfg.data.max_seq_length
+        )
+        _text_cfg = getattr(model.config, "text_config", model.config)
+        print(
+            "MODEL CONFIG: num_kv_shared_layers="
+            f"{getattr(_text_cfg, 'num_kv_shared_layers', None)}",
+            flush=True,
         )
     else:
         tokenizer = load_tokenizer(cfg.model_path)

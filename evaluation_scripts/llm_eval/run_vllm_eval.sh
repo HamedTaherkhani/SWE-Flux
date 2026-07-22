@@ -4,13 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TARGET_REPO="${1:-}"
-
-# Use active env Python by default. Override with PYTHON_BIN if needed.
-export PYTHON_BIN="${PYTHON_BIN:-python}"
+TRIAD_ENV="/project/def-hemmati-ac/hamedth/conda_envs/Triad_env"
 
 # 1) Start server
-# DEFAULT_VLLM_MODEL="/home/hamedth/projects/def-hemmati-ac/hamedth/hugging_face/gemma4-31b"
-DEFAULT_VLLM_MODEL="/home/hamedth/projects/def-hemmati-ac/hamedth/hugging_face/gemma4-4b"
+DEFAULT_VLLM_MODEL="/home/hamedth/projects/def-hemmati-ac/hamedth/hugging_face/gemma4-31b"
+# DEFAULT_VLLM_MODEL="/home/hamedth/projects/def-hemmati-ac/hamedth/hugging_face/gemma4-4b"
 export VLLM_MODEL="${VLLM_MODEL:-$DEFAULT_VLLM_MODEL}"
 
 # Keep served name aligned with the selected model path unless explicitly overridden.
@@ -27,9 +25,10 @@ export VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-1}"
 export VLLM_KV_CACHE_DTYPE="${VLLM_KV_CACHE_DTYPE:-fp8}"
 export VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.9}"
 export VLLM_ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-1}"
-export VLLM_TP="${VLLM_TP:-1}"
+export VLLM_TP="${VLLM_TP:-2}"
 export VLLM_ENABLE_AUTO_TOOL_CHOICE="${VLLM_ENABLE_AUTO_TOOL_CHOICE:-1}"
 export VLLM_TOOL_CALL_PARSER="${VLLM_TOOL_CALL_PARSER:-gemma4}"
+export VLLM_BASE_URL="${VLLM_BASE_URL:-http://${VLLM_CLIENT_HOST:-127.0.0.1}:${VLLM_PORT:-8000}/v1}"
 
 
 
@@ -59,7 +58,22 @@ fi
 
 module load StdEnv/2023
 module load apptainer/1.4.5
-conda activate Triad
+
+# Keep Apptainer build/cache files in the user's home directory.
+export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-/home/hamedth/apptainer_tmp}"
+export APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR:-/home/hamedth/apptainer_cache}"
+export REPOBEHAVE_MOUNT_ROOT="${REPOBEHAVE_MOUNT_ROOT:-/home/hamedth/.tmp_mounted_repos}"
+mkdir -p "$APPTAINER_TMPDIR" "$APPTAINER_CACHEDIR" "$REPOBEHAVE_MOUNT_ROOT"
+
+conda activate "$TRIAD_ENV"
+export PYTHON_BIN="$TRIAD_ENV/bin/python"
+
+echo "Eval Python: $("$PYTHON_BIN" -c 'import sys; print(sys.executable)')"
+if ! "$PYTHON_BIN" -c 'import openai' >/dev/null 2>&1; then
+  echo "ERROR: eval Python cannot import openai: $PYTHON_BIN" >&2
+  "$PYTHON_BIN" -c 'import sys; print(sys.executable); import openai'
+  exit 1
+fi
 
 if [[ -n "$TARGET_REPO" ]]; then
   REPOS=("$TARGET_REPO")
@@ -71,8 +85,7 @@ from pathlib import Path
 
 repos = json.loads(Path("'"$REPO_ROOT"'/Repositories.json").read_text())
 for repo_name in repos:
-    if repo_name not in {"Sympy", "yt_dlp"}:
-        print(repo_name)
+    print(repo_name)
 '
   )
 fi
@@ -84,8 +97,10 @@ for repo in "${REPOS[@]}"; do
     --model "$VLLM_ALIAS" \
     --repo-map-mode none \
     --repo "$repo" \
-    --container-runtime apptainer \
-    --refresh-mounted-repos
+    --container-runtime none \
+    --mount-root "$REPOBEHAVE_MOUNT_ROOT" \
+    --refresh-mounted-repos \
+    --resume
 done
 
 # 4) Stop server when done

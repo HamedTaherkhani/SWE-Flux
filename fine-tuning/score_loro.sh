@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 EVAL_OUTPUT_ROOT="${EVAL_OUTPUT_ROOT:-$SCRIPT_DIR/evaluations}"
-ALIAS_PREFIX="${ALIAS_PREFIX:-gemma4-r64-loro}"
+ALIAS_PREFIX="${ALIAS_PREFIX:-gemma4-r16-loro}"
 SCORER="$REPO_ROOT/evaluation_scripts/evaluate_qa_answers.py"
 
 if [[ ! -d "$EVAL_OUTPUT_ROOT/llm/vllm" ]]; then
