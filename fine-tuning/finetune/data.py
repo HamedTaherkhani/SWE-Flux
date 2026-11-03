@@ -21,97 +21,160 @@ from .config import DataConfig
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Gemma 4 tool-call wire format
+# Gemma 4 tool-call normalization
 # ---------------------------------------------------------------------------
-# vLLM's gemma4 tool parser expects assistant tool calls in this exact shape:
+# Current Gemma 4 chat templates natively render OpenAI-style `tool_calls` and
+# following role="tool" messages into the wire format vLLM's gemma4 parser
+# expects:
+#   <|tool_call>call:NAME{key:<|"|>value<|"|>}<tool_call|>
+#   <|tool_response>response:NAME{value:<|"|>{...}<|"|>}<tool_response|>
 #
-#   <|tool_call>call:NAME{key:<|"|>value<|"|>,num:42,flag:true}<tool_call|>
-#
-# i.e. bare keys (no quotes), string values delimited by <|"|>, bare numbers.
-# Gemma 4's chat template fails to translate OpenAI-style `tool_calls` with a
-# JSON-encoded `arguments` string into this format; the result is JSON-with-
-# delimiters syntax that the parser then mangles into garbage dict keys
-# (e.g. {'"path"': '"files/x.py"'}). The base model emits the right format
-# because it was pretrained on it; fine-tuning on the wrong-format text teaches
-# the student to emit broken calls.
-#
-# We sidestep the chat template's tool_call rendering: convert each assistant
-# message's tool_calls into a content string already in wire format, then drop
-# the tool_calls field so the template just passes the content through.
+# Older SFT records in this repo baked the wire text directly into assistant
+# content and often included prose before it. Normalize those records back into
+# structured tool_calls, dropping the prose so the model is trained on the same
+# protocol vLLM serves at evaluation time.
 
 _GEMMA4_STR_DELIM = '<|"|>'
 _GEMMA4_TOOL_START = "<|tool_call>"
 _GEMMA4_TOOL_END = "<tool_call|>"
 
 
-def _gemma4_value(v: Any) -> str:
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if v is None:
-        return "null"
-    if isinstance(v, (int, float)):
-        return str(v)
-    if isinstance(v, str):
-        return f"{_GEMMA4_STR_DELIM}{v}{_GEMMA4_STR_DELIM}"
-    if isinstance(v, list):
-        return "[" + ",".join(_gemma4_value(x) for x in v) + "]"
-    if isinstance(v, dict):
-        return "{" + ",".join(f"{k}:{_gemma4_value(x)}" for k, x in v.items()) + "}"
-    return f"{_GEMMA4_STR_DELIM}{v}{_GEMMA4_STR_DELIM}"
+def _split_top_level(body: str) -> List[str]:
+    parts: List[str] = []
+    start = 0
+    depth = 0
+    in_gemma_string = False
+    i = 0
+    while i < len(body):
+        if body.startswith(_GEMMA4_STR_DELIM, i):
+            in_gemma_string = not in_gemma_string
+            i += len(_GEMMA4_STR_DELIM)
+            continue
+        ch = body[i]
+        if not in_gemma_string:
+            if ch in "[{":
+                depth += 1
+            elif ch in "]}":
+                depth = max(0, depth - 1)
+            elif ch == "," and depth == 0:
+                parts.append(body[start:i])
+                start = i + 1
+        i += 1
+    tail = body[start:]
+    if tail:
+        parts.append(tail)
+    return [p.strip() for p in parts if p.strip()]
 
 
-def _gemma4_tool_call_text(name: str, arguments: Any) -> str:
-    if isinstance(arguments, str):
-        try:
-            args = json.loads(arguments) if arguments else {}
-        except json.JSONDecodeError:
-            args = {}
-    else:
-        args = arguments or {}
-    body = ",".join(f"{k}:{_gemma4_value(v)}" for k, v in args.items())
-    return f"{_GEMMA4_TOOL_START}call:{name}{{{body}}}{_GEMMA4_TOOL_END}"
+def _parse_gemma4_value(raw: str) -> Any:
+    raw = raw.strip()
+    if raw.startswith(_GEMMA4_STR_DELIM) and raw.endswith(_GEMMA4_STR_DELIM):
+        return raw[len(_GEMMA4_STR_DELIM):-len(_GEMMA4_STR_DELIM)]
+    if raw == "true":
+        return True
+    if raw == "false":
+        return False
+    if raw == "null":
+        return None
+    try:
+        if any(ch in raw for ch in ".eE"):
+            return float(raw)
+        return int(raw)
+    except ValueError:
+        return raw
 
 
-def _rewrite_tool_messages_as_user(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Convert role='tool' messages into role='user' messages so Gemma 4's chat
-    template actually renders them. The template silently drops 'tool' role
-    messages, which would otherwise hide every file read from the student during
-    training — the model would learn to emit tool calls but never see results.
+def _parse_gemma4_arguments(body: str) -> Dict[str, Any]:
+    args: Dict[str, Any] = {}
+    for part in _split_top_level(body):
+        if ":" not in part:
+            continue
+        key, value = part.split(":", 1)
+        args[key.strip()] = _parse_gemma4_value(value)
+    return args
 
-    Wrap the content in <tool_result>...</tool_result> so the student can tell
-    these turns apart from genuine user instructions. The collator's assistant-
-    turn loss mask is unaffected: these are still non-assistant turns.
+
+def _arguments_to_mapping(arguments: Any) -> Any:
+    if isinstance(arguments, dict):
+        return arguments
+    if not isinstance(arguments, str):
+        return arguments or {}
+    text = arguments.strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return _parse_gemma4_arguments(text)
+
+
+def _extract_inline_tool_calls(content: str) -> List[Dict[str, Any]]:
+    calls: List[Dict[str, Any]] = []
+    cursor = 0
+    while True:
+        start = content.find(_GEMMA4_TOOL_START, cursor)
+        if start < 0:
+            break
+        end = content.find(_GEMMA4_TOOL_END, start)
+        if end < 0:
+            break
+        inner = content[start + len(_GEMMA4_TOOL_START):end]
+        cursor = end + len(_GEMMA4_TOOL_END)
+        if not inner.startswith("call:") or "{" not in inner or not inner.endswith("}"):
+            continue
+        name_and_args = inner[len("call:"):]
+        name, body = name_and_args.split("{", 1)
+        calls.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": name.strip(),
+                    "arguments": _parse_gemma4_arguments(body[:-1]),
+                },
+            }
+        )
+    return calls
+
+
+def normalize_messages_for_gemma4(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return messages in the native Gemma4/OpenAI tool-call shape.
+
+    Tool-call assistant turns are content-free structured `tool_calls`; any
+    natural-language preamble from older records is intentionally dropped.
+    Role="tool" messages are preserved so the Gemma4 template renders native
+    `<|tool_response>...<tool_response|>` blocks.
     """
     out: List[Dict[str, Any]] = []
-    for m in messages:
-        if m.get("role") == "tool":
-            content = m.get("content", "") or ""
-            tool_id = m.get("tool_call_id", "")
-            preamble = f'<tool_result id="{tool_id}">' if tool_id else "<tool_result>"
-            out.append({"role": "user", "content": f"{preamble}\n{content}\n</tool_result>"})
-        else:
-            out.append(m)
-    return out
+    for idx, m in enumerate(messages):
+        if m.get("role") != "assistant":
+            out.append(dict(m))
+            continue
 
+        content = m.get("content") or ""
+        tool_calls = m.get("tool_calls") or _extract_inline_tool_calls(content)
+        if not tool_calls:
+            out.append(dict(m))
+            continue
 
-def _rewrite_assistant_tool_calls(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Inline tool_calls into content using Gemma 4's wire format."""
-    out: List[Dict[str, Any]] = []
-    for m in messages:
-        if m.get("role") == "assistant" and m.get("tool_calls"):
-            wire = "".join(
-                _gemma4_tool_call_text(
-                    tc.get("function", {}).get("name", ""),
-                    tc.get("function", {}).get("arguments", "{}"),
-                )
-                for tc in m["tool_calls"]
-            )
-            content = (m.get("content") or "")
-            new_content = (content + ("\n" if content.strip() else "") + wire).strip()
-            out.append({"role": "assistant", "content": new_content})
-        else:
-            out.append(m)
+        next_tool_ids = [
+            follow.get("tool_call_id")
+            for follow in messages[idx + 1:]
+            if follow.get("role") == "tool"
+        ]
+        normalized_calls = []
+        for call_idx, tc in enumerate(tool_calls):
+            fn = dict(tc.get("function", {}))
+            normalized = {
+                "id": tc.get("id") or (next_tool_ids[call_idx] if call_idx < len(next_tool_ids) else f"call_{idx}_{call_idx}"),
+                "type": tc.get("type", "function"),
+                "function": {
+                    "name": fn.get("name", ""),
+                    "arguments": _arguments_to_mapping(fn.get("arguments", {})),
+                },
+            }
+            normalized_calls.append(normalized)
+        out.append({"role": "assistant", "content": "", "tool_calls": normalized_calls})
     return out
 
 # ---------------------------------------------------------------------------
@@ -201,7 +264,7 @@ def _format_messages(messages: List[Dict[str, Any]], tokenizer: Any) -> Optional
     """
     try:
         text: str = tokenizer.apply_chat_template(
-            _rewrite_tool_messages_as_user(_rewrite_assistant_tool_calls(messages)),
+            normalize_messages_for_gemma4(messages),
             tools=TOOLS,
             tokenize=False,
             add_generation_prompt=False,

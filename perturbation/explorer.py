@@ -1,22 +1,20 @@
-"""Coverage-guided exploration.
+"""Perturbation exploration with saved gate annotations.
 
 Instead of one perturbation per instance, the explorer runs a budgeted search:
 it tries many (strategy, seed) mutations, harvests each, reads the execution
-trace, and **keeps only perturbations that reach new branches/paths** -- novel
-coverage signatures, and (optionally) lines not in the original's baseline. The
-result is a small set of perturbed instances per original, each exercising a
-different path through the code under test.
+trace, and saves every candidate whose oracle harvest succeeds. Coverage,
+oracle-change, and flip are recorded as per-candidate facts instead of being
+used as retention gates.
 
 The harvest step is the fitness evaluator (a perturbation that breaks execution
-yields no trace and is discarded). This is greybox/coverage-guided fuzzing
-applied to test inputs, with the existing trace as feedback.
+yields no trace/oracle and is not saved).
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List
 
-from .coverage import CoverageExtractor, CoverageSignature
+from .coverage import CoverageSignature
 from .models import InstanceOutcome
 
 if TYPE_CHECKING:  # avoid import cycle at runtime
@@ -27,28 +25,12 @@ class CoverageGuidedExplorer:
     def __init__(self, pipeline: "PerturbationPipeline") -> None:
         self.p = pipeline
         self.config = pipeline.config
-        self.extractor = CoverageExtractor()
 
     # -- baseline --------------------------------------------------------------
     def _baseline_coverage(self, original_id: str) -> CoverageSignature:
         """Harvest a throwaway copy of the original (unperturbed) to get its
         coverage, without disturbing the canonical instance."""
-        if not (self.config.explore_baseline and self.config.run_harvest):
-            return CoverageSignature()
-        repo = self.config.repo
-        tmp_id = f"{original_id}__baseline_tmp"
-        try:
-            # A copy of the original with inputs unchanged: its assertions still
-            # pass and its trace is the unperturbed coverage baseline.
-            self.p.materializer.materialize(repo, original_id, tmp_id)
-            harvest = self.p.harvester.harvest(repo, tmp_id)
-            if harvest.ok and harvest.trace_path:
-                return self.extractor.extract_file(harvest.trace_path) or CoverageSignature()
-            return CoverageSignature()
-        except Exception:  # noqa: BLE001
-            return CoverageSignature()
-        finally:
-            self.p.materializer.remove(repo, tmp_id)
+        return self.p.baseline_coverage(original_id)
 
     # -- main search -----------------------------------------------------------
     def explore(self, original_id: str, original_passed: bool) -> List[InstanceOutcome]:
@@ -59,18 +41,15 @@ class CoverageGuidedExplorer:
 
         seen: set[int] = set()
         all_outcomes: List[InstanceOutcome] = []
-        kept_count = 0
         attempts = 0
 
         for strategy in self.config.explore_strategies:
             for seed in self.config.explore_seeds:
-                if attempts >= self.config.explore_budget or kept_count >= self.config.explore_max_keep:
+                if attempts >= self.config.explore_budget:
                     return all_outcomes
                 attempts += 1
                 outcome = self._one(original_id, strategy, seed, original_passed, baseline, seen)
                 all_outcomes.append(outcome)
-                if outcome.kept:
-                    kept_count += 1
                 self.p._log("    " + self.p._fmt_outcome(outcome))  # noqa: SLF001
         return all_outcomes
 
@@ -84,7 +63,7 @@ class CoverageGuidedExplorer:
         seen: set,
         source: str = None,
     ) -> InstanceOutcome:
-        """Run one mutation attempt; always returns an outcome with ``kept`` set.
+        """Run one mutation attempt; harvested candidates are finalized and saved.
 
         If ``source`` is given it is used verbatim (e.g. an LLM-proposed variant);
         otherwise the AST strategy generates the perturbation.
@@ -94,6 +73,7 @@ class CoverageGuidedExplorer:
         outcome = InstanceOutcome(
             repo=repo, original_id=original_id, new_id=new_id,
             strategy=strategy, seed=seed, model_passed_original=original_passed,
+            model=self.config.model, question_kind=self.p._question_kind(original_id),  # noqa: SLF001
         )
 
         if source is None:
@@ -108,41 +88,24 @@ class CoverageGuidedExplorer:
             outcome.kept = False
             return outcome
 
-        # Always record coverage metrics (useful in the report either way).
-        sig = (self.extractor.extract_file(harvest.trace_path) if harvest.trace_path else None) or CoverageSignature()
-        outcome.covered_lines = len(sig.lines)
-        outcome.new_lines_vs_baseline = len(sig.new_lines_vs(baseline))
-        outcome.new_edges_vs_baseline = len(sig.new_edges_vs(baseline))
-
-        # flip gate: ignore other gates -- finalize (relocate + dataset +
-        # inference + eval) first, then keep ONLY if the model went pass -> fail.
-        if self.config.accept_criterion == "flip":
-            self.p._finalize(new_id, outcome)  # noqa: SLF001
-            if outcome.flipped_to_fail:
-                outcome.add_stage("flip", True, "pass->fail")
-                outcome.kept = True
-            else:
-                outcome.add_stage("flip", False, f"no flip (new_pass={outcome.model_passed_new})")
-                self.p._remove_output_instance(new_id)  # noqa: SLF001
-                self.p.materializer.remove(repo, new_id)  # if relocate didn't happen  # noqa: SLF001
-                outcome.kept = False
-            return outcome
-
-        # acceptance gate -------------------------------------------------------
-        if self.config.accept_criterion == "oracle":
-            accept, stage_ok_detail, stage_bad_detail = self._oracle_gate(new_id, outcome, seen)
-        else:
-            accept, stage_ok_detail, stage_bad_detail = self._coverage_gate(sig, baseline, seen)
-
-        if not accept:
-            outcome.add_stage(self.config.accept_criterion, False, stage_bad_detail)
-            self.p.materializer.remove(repo, new_id)
-            outcome.kept = False
-            return outcome
-
-        outcome.add_stage(self.config.accept_criterion, True, stage_ok_detail)
+        sig = self.p._record_trace_comparison(original_id, harvest, outcome, baseline)  # noqa: SLF001
+        self._record_gate_stages(new_id, outcome, sig, baseline, seen)
         outcome.kept = True
         return self.p._finalize(new_id, outcome)  # noqa: SLF001
+
+    def _record_gate_stages(
+        self,
+        new_id: str,
+        outcome: InstanceOutcome,
+        sig: CoverageSignature,
+        baseline: CoverageSignature,
+        seen: set,
+    ) -> None:
+        """Add informational gate statuses; never drop a harvested candidate."""
+        cov_ok, cov_detail, cov_bad = self._coverage_gate(sig, baseline, seen)
+        outcome.add_stage("coverage", cov_ok, cov_detail or cov_bad)
+        oracle_ok, oracle_detail, oracle_bad = self._oracle_gate(new_id, outcome, seen)
+        outcome.add_stage("oracle", oracle_ok, oracle_detail or oracle_bad)
 
     def _coverage_gate(self, sig: CoverageSignature, baseline: CoverageSignature, seen: set):
         new_lines = sig.new_lines_vs(baseline)

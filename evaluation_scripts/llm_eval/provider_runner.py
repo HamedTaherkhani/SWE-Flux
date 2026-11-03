@@ -147,12 +147,12 @@ def _empty_usage(provider: str, model: str) -> Dict[str, Any]:
 
 
 def _normalize_protocol_text(text: str) -> str:
-    return re.sub(r"\s+", " ", (text or "").strip()).strip(" .").lower()
+    cleaned = (text or "").replace("`", "")
+    return re.sub(r"\s+", " ", cleaned.strip()).strip(" .").lower()
 
 
-def _is_tool_phase_done_text(text: str) -> bool:
-    normalized = _normalize_protocol_text(text)
-    accepted = [
+def _tool_phase_done_markers() -> List[str]:
+    return [
         TOOL_PHASE_DONE_SENTINEL.lower(),
         TOOL_PHASE_DONE_SENTINEL.lower().replace("_", " "),
         "i am done with file reading",
@@ -162,13 +162,60 @@ def _is_tool_phase_done_text(text: str) -> bool:
         "finished reading files",
         "finished with file reading",
     ]
-    for marker in accepted:
-        if normalized == marker:
+
+
+def _strip_protocol_wrapping(text: str) -> str:
+    return text.strip().strip('`"\'').strip(" .,;:!?")
+
+
+def _marker_matches_whole_or_prefix(normalized: str, marker: str) -> bool:
+    if normalized == marker:
+        return True
+    if normalized.startswith(marker):
+        suffix = normalized[len(marker) :].lstrip()
+        if not suffix or suffix[0] in "{[(:,-":
             return True
-        if normalized.startswith(marker):
-            suffix = normalized[len(marker):].lstrip()
-            if not suffix or suffix[0] in '{[(:,-':
+    return False
+
+
+def _assistant_claims_tool_phase_done(normalized: str, markers: List[str]) -> bool:
+    if not any(marker in normalized for marker in markers):
+        return False
+    refusal_phrases = (
+        "already signaled",
+        "will not make further tool calls",
+        "no further tool calls",
+        "already completed the tool",
+        "done using tools",
+    )
+    return any(phrase in normalized for phrase in refusal_phrases)
+
+
+def _is_tool_phase_done_text(text: str) -> bool:
+    if not text or not text.strip():
+        return False
+
+    markers = _tool_phase_done_markers()
+    normalized = _normalize_protocol_text(text)
+
+    for marker in markers:
+        if _marker_matches_whole_or_prefix(normalized, marker):
+            return True
+
+    for line in text.splitlines():
+        line_norm = _normalize_protocol_text(_strip_protocol_wrapping(line))
+        if any(line_norm == marker for marker in markers):
+            return True
+
+    for marker in markers:
+        if normalized.endswith(marker):
+            prefix = normalized[: -len(marker)].rstrip()
+            if not prefix or prefix[-1] in ".!?:;,":
                 return True
+
+    if _assistant_claims_tool_phase_done(normalized, markers):
+        return True
+
     return False
 
 
@@ -443,20 +490,26 @@ class ProviderRunner:
         usage_source: str = "openai-chat",
         request_counter: Optional[List[int]] = None,
         enforce_request_cap: bool = True,
+        max_tokens: Optional[int] = None,
     ) -> str:
         counter = request_counter if request_counter is not None else [0]
         if not enable_tools:
             if enforce_request_cap:
                 self._check_request_cap(counter)
-            self._t(f"[{trace_label}] request")
-            resp = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-            )
+            request_kwargs: Dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": self.temperature,
+            }
+            if max_tokens is not None:
+                request_kwargs["max_tokens"] = max(1, int(max_tokens))
+            self._t(f"[{trace_label}] request" + (f" max_tokens={max_tokens}" if max_tokens is not None else ""))
+            resp = client.chat.completions.create(**request_kwargs)
             counter[0] = int(counter[0]) + 1
             self._record_usage(usage_source, getattr(resp, "usage", None))
-            msg = resp.choices[0].message
+            choice = resp.choices[0]
+            self._t(f"[{trace_label}] finish_reason: {getattr(choice, 'finish_reason', None)}")
+            msg = choice.message
             self._t(f"[{trace_label}] assistant: {msg.content or ''}")
             return msg.content or ""
 
@@ -471,6 +524,7 @@ class ProviderRunner:
                 usage_source=usage_source,
                 request_counter=counter,
                 enforce_request_cap=enforce_request_cap,
+                max_tokens=max_tokens,
             )
 
         tools = [
@@ -499,8 +553,9 @@ class ProviderRunner:
                     request_counter=counter,
                     enforce_request_cap=False,
                     tool_names=active_tool_names,
+                    max_tokens=max_tokens,
                 )
-            self._t(f"[{trace_label}] request")
+            self._t(f"[{trace_label}] request" + (f" max_tokens={max_tokens}" if max_tokens is not None else ""))
             request_kwargs: Dict[str, Any] = {
                 "model": self.model,
                 "messages": messages,
@@ -508,6 +563,8 @@ class ProviderRunner:
                 "tool_choice": "auto",
                 "temperature": self.temperature,
             }
+            if max_tokens is not None:
+                request_kwargs["max_tokens"] = max(1, int(max_tokens))
             try:
                 resp = client.chat.completions.create(**request_kwargs)
             except Exception as exc:
@@ -529,7 +586,9 @@ class ProviderRunner:
                     raise
             counter[0] = int(counter[0]) + 1
             self._record_usage(usage_source, getattr(resp, "usage", None))
-            msg = resp.choices[0].message
+            choice = resp.choices[0]
+            self._t(f"[{trace_label}] finish_reason: {getattr(choice, 'finish_reason', None)}")
+            msg = choice.message
             self._t(f"[{trace_label}] assistant: {msg.content or ''}")
 
             if msg.tool_calls:
@@ -576,6 +635,7 @@ class ProviderRunner:
                     request_counter=counter,
                     enforce_request_cap=False,
                     tool_names=active_tool_names,
+                    max_tokens=max_tokens,
                 )
 
             self._t(f"[{trace_label}] assistant did not signal tool completion; reminding")
@@ -697,6 +757,7 @@ class ProviderRunner:
             or "EMPTY"
         )
         timeout_seconds = max(1.0, float(DEFAULT_VLLM_REQUEST_TIMEOUT_SECONDS))
+        max_tokens = _to_int_or_none(os.environ.get("REPOBEHAVE_VLLM_MAX_TOKENS"))
         client = openai.OpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -717,6 +778,7 @@ class ProviderRunner:
             trace_label="vllm-chat",
             usage_source="openai-chat-vllm",
             request_counter=request_counter,
+            max_tokens=max_tokens,
         )
 
     def _run_openai_responses(

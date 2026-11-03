@@ -124,6 +124,11 @@ class TrainingConfig:
     # collator, loss masking, and SFTTrainer are unchanged.
     use_unsloth: bool = False
 
+    # When True, compute loss only on the final reasoning/answer assistant turn
+    # (the turn containing "## Answer"). Earlier assistant tool calls and all
+    # tool responses remain prompt context, but they do not receive gradients.
+    final_answer_only_loss: bool = False
+
 
 @dataclass
 class MergeConfig:
@@ -211,6 +216,14 @@ def parse_train_args(argv: Optional[List[str]] = None) -> TrainingConfig:
         choices=["adamw_torch", "paged_adamw_8bit", "paged_adamw_32bit"],
         help="Optimizer (paged_adamw_8bit is strongly recommended for QLoRA)",
     )
+    train.add_argument(
+        "--final-answer-only-loss", action="store_true",
+        help=(
+            "Compute loss only on the final reasoning/answer assistant turn "
+            "(the turn containing '## Answer'). Earlier assistant tool calls "
+            "and tool responses are kept as context but masked from training."
+        ),
+    )
 
     # --- Logging / saving ---
     log = parser.add_argument_group("Logging and saving")
@@ -291,6 +304,7 @@ def parse_train_args(argv: Optional[List[str]] = None) -> TrainingConfig:
         merge_after_training=args.merge_after_training,
         merged_output_dir=merged_dir,
         use_unsloth=args.use_unsloth,
+        final_answer_only_loss=args.final_answer_only_loss,
     )
 
 
