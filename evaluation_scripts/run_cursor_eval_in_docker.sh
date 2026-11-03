@@ -20,6 +20,12 @@ Options:
   --output-root <path>         Host output root (default: evaluations/cursor)
   --container-workdir <path>   Project dir inside container (default: /testbed)
   --resume                     Skip instances that already have non-empty answer.json
+  --no-exec                    Static mode: the agent gets a READ-ONLY copy of the repo and
+                               cannot run any shell command (no tests, no python). Runs inside
+                               a minimal sandbox image instead of the repo's environment image.
+                               Default output root becomes evaluations/cursor-noexec.
+  --sandbox-image <image>      Base image for --no-exec sandbox (default: ubuntu:22.04).
+                               Must NOT contain python or the project environment.
   --help                       Show help
 
 Output layout:
@@ -28,6 +34,7 @@ Output layout:
 
 Examples:
   ./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5 --repo Sympy
+  ./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5 --repo Sympy --no-exec
   ./evaluation_scripts/run_cursor_eval_in_docker.sh --model gpt-5 --repo all --num-instances 10
 EOF
 }
@@ -38,9 +45,11 @@ NUM_INSTANCES="all"
 CURSOR_API_KEY="${CURSOR_API_KEY:-${cursor_api_key:-${cursur_api_key:-}}}"
 REPOS_FILE="$REPO_ROOT/Repositories.json"
 INSTANCES_ROOT="$REPO_ROOT/qa_instances_eval"
-OUTPUT_ROOT="$REPO_ROOT/evaluations/cursor"
+OUTPUT_ROOT=""
 CONTAINER_WORKDIR="/testbed"
 RESUME="0"
+NO_EXEC="0"
+SANDBOX_IMAGE="ubuntu:22.04"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -80,6 +89,14 @@ while [[ $# -gt 0 ]]; do
       RESUME="1"
       shift
       ;;
+    --no-exec)
+      NO_EXEC="1"
+      shift
+      ;;
+    --sandbox-image)
+      SANDBOX_IMAGE="${2:-}"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -97,6 +114,16 @@ if [[ -z "$MODEL" || -z "$REPO_ARG" ]]; then
   usage
   exit 1
 fi
+
+if [[ -z "$OUTPUT_ROOT" ]]; then
+  if [[ "$NO_EXEC" == "1" ]]; then
+    OUTPUT_ROOT="$REPO_ROOT/evaluations/cursor-noexec"
+  else
+    OUTPUT_ROOT="$REPO_ROOT/evaluations/cursor"
+  fi
+fi
+# Tool directory name under <workdir>/evaluations/ inside the container mirrors the host layout.
+TOOL_DIR_NAME="$(basename "$OUTPUT_ROOT")"
 
 if [[ ! -f "$REPOS_FILE" ]]; then
   echo "ERROR: repos file not found: $REPOS_FILE" >&2
@@ -167,6 +194,7 @@ echo "Instances root:     $INSTANCES_ROOT"
 echo "Container workdir:  $CONTAINER_WORKDIR"
 echo "Resume mode:        $([[ "$RESUME" == "1" ]] && echo enabled || echo disabled)"
 echo "Auto auth:          $([[ -n "$CURSOR_API_KEY" ]] && echo enabled || echo disabled)"
+echo "Execution:          $([[ "$NO_EXEC" == "1" ]] && echo "DISABLED (static, sandbox image: $SANDBOX_IMAGE)" || echo "enabled (full env access)")"
 echo
 
 for repo in "${TARGET_REPOS[@]}"; do
@@ -204,7 +232,7 @@ for repo in "${TARGET_REPOS[@]}"; do
 
   container_name="cursor-eval-${repo,,}-${MODEL_DIR_NAME}-$$"
   container_repo_instances="$CONTAINER_WORKDIR/qa_instances_eval/$repo"
-  container_repo_out="$CONTAINER_WORKDIR/evaluations/cursor/$MODEL_DIR_NAME/$repo"
+  container_repo_out="$CONTAINER_WORKDIR/evaluations/$TOOL_DIR_NAME/$MODEL_DIR_NAME/$repo"
   host_repo_out="$HOST_MODEL_OUT/$repo"
   mkdir -p "$host_repo_out"
 
@@ -236,13 +264,55 @@ for repo in "${TARGET_REPOS[@]}"; do
   echo "[$repo] Starting container: $container_name"
   docker run -d --name "$container_name" -w "$CONTAINER_WORKDIR" "$image" tail -f /dev/null >/dev/null
 
+  env_container_name="$container_name"
+  sandbox_container_name="${container_name}-sandbox"
+  snapshot_dir=""
+
   cleanup_repo() {
-    docker rm -f "$container_name" >/dev/null 2>&1 || true
+    docker rm -f "$env_container_name" >/dev/null 2>&1 || true
+    docker rm -f "$sandbox_container_name" >/dev/null 2>&1 || true
+    if [[ -n "$snapshot_dir" && -d "$snapshot_dir" ]]; then
+      rm -rf "$snapshot_dir" || true
+    fi
   }
   trap cleanup_repo EXIT
 
   docker exec "$container_name" bash -lc "mkdir -p '$CONTAINER_WORKDIR/qa_instances_eval' '$container_repo_out'"
   docker cp "$host_repo_instances" "$container_name:$CONTAINER_WORKDIR/qa_instances_eval/"
+
+  if [[ "$NO_EXEC" == "1" ]]; then
+    # Static mode: snapshot the repo (plus instances) out of the environment image, drop the
+    # environment container, and run the agent in a minimal sandbox where the repo is mounted
+    # read-only and no interpreter/test environment exists. Only the output dir is writable.
+    snapshot_dir="$(mktemp -d "${TMPDIR:-/tmp}/cursor-noexec-${repo,,}-XXXXXX")"
+    echo "[$repo] Snapshotting $CONTAINER_WORKDIR from environment image -> $snapshot_dir"
+    docker cp "$env_container_name:$CONTAINER_WORKDIR/." "$snapshot_dir/"
+    docker rm -f "$env_container_name" >/dev/null 2>&1 || true
+    mkdir -p "$snapshot_dir/evaluations/$TOOL_DIR_NAME/$MODEL_DIR_NAME/$repo"
+
+    if ! docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then
+      echo "[$repo] Pulling sandbox image $SANDBOX_IMAGE..."
+      docker pull "$SANDBOX_IMAGE"
+    fi
+
+    echo "[$repo] Starting sandbox container: $sandbox_container_name"
+    docker run -d --name "$sandbox_container_name" -w "$CONTAINER_WORKDIR" \
+      -v "$snapshot_dir:$CONTAINER_WORKDIR:ro" \
+      -v "$host_repo_out:$container_repo_out" \
+      -v /etc/ssl/certs:/etc/ssl/certs:ro \
+      -e SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+      -e HOME=/root \
+      "$SANDBOX_IMAGE" tail -f /dev/null >/dev/null
+    container_name="$sandbox_container_name"
+
+    # Hard guard: the sandbox image must not expose the project environment.
+    if docker exec "$container_name" bash -lc "command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || command -v pytest >/dev/null 2>&1"; then
+      echo "[$repo] ERROR: sandbox image '$SANDBOX_IMAGE' contains python/pytest; refusing to run --no-exec." >&2
+      cleanup_repo
+      trap - EXIT
+      continue
+    fi
+  fi
 
   if ! docker exec "$container_name" bash -lc "command -v cursor-agent >/dev/null 2>&1"; then
     echo "[$repo] Installing cursor-agent into container..."
@@ -261,6 +331,23 @@ chmod +x /usr/local/bin/cursor-agent"
     cleanup_repo
     trap - EXIT
     continue
+  fi
+
+  if [[ "$NO_EXEC" == "1" ]]; then
+    # Soft guard: deny every shell command at the Cursor permission layer. --force honours
+    # explicit deny rules, so the agent's Shell tool is rejected before anything is spawned.
+    docker exec "$container_name" bash -lc "mkdir -p \$HOME/.cursor && cat >\$HOME/.cursor/cli-config.json <<'EOF'
+{
+  \"version\": 1,
+  \"permissions\": {
+    \"allow\": [],
+    \"deny\": [\"Shell(*)\"]
+  },
+  \"approvalMode\": \"allowlist\",
+  \"sandbox\": { \"mode\": \"disabled\" }
+}
+EOF"
+    echo "[$repo] Cursor permissions: Shell(*) denied; repo mounted read-only."
   fi
 
   if [[ -n "$CURSOR_API_KEY" ]]; then
@@ -305,11 +392,39 @@ chmod +x /usr/local/bin/cursor-agent"
       -e TRAJ_OUT="$traj_out" \
       -e WORKSPACE="$CONTAINER_WORKDIR" \
       -e CURSOR_API_KEY="${CURSOR_API_KEY:-}" \
+      -e NO_EXEC="$NO_EXEC" \
       "$container_name" \
       bash -lc '
         set -euo pipefail
         mkdir -p "$(dirname "$ANSWER_OUT")"
         RAW_TRAJ_OUT="$(dirname "$ANSWER_OUT")/traj.ndjson"
+        if [[ "$NO_EXEC" == "1" ]]; then
+        PROMPT=$(cat <<EOF
+You are running a repository QA evaluation instance in STATIC mode (no code execution).
+
+Question file: $QFILE
+Instance directory: $INSTANCE_DIR
+Output file to write: $ANSWER_OUT
+
+Constraints of this environment:
+- The repository is mounted READ-ONLY and there is NO Python interpreter or test runner available.
+- You CANNOT run shell commands, tests, or any code; such tool calls are denied. Do not retry them.
+- You may only read files (source, tests, question) and write the single output file below.
+- Derive the answer by reading the code and the test cases and reasoning about the execution
+  step by step. Do not guess placeholder values; trace the program logic carefully.
+
+Required workflow:
+1. Open and read "$QFILE".
+2. Use BOTH the "question" field and "template_answer" field.
+3. The final output must follow template_answer exactly (same top-level keys, required structure, and value types).
+4. Read the instance test cases under "$INSTANCE_DIR/files/tests/qa" and every referenced source file.
+5. Mentally simulate the execution described by the tests to compute the correct answer.
+6. Write ONLY the final JSON answer object to "$ANSWER_OUT".
+7. Do not write markdown fences. Do not ask for confirmation.
+8. Ensure "$ANSWER_OUT" is valid JSON before finishing.
+EOF
+)
+        else
         PROMPT=$(cat <<EOF
 You are running a repository QA evaluation instance with full environment access.
 
@@ -330,6 +445,7 @@ Required workflow:
 8. Ensure "$ANSWER_OUT" is valid JSON before finishing.
 EOF
 )
+        fi
 
         : >"$RAW_TRAJ_OUT"
         cmd_status=0
@@ -374,7 +490,8 @@ with open(dst, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
         else
-          cp "$RAW_TRAJ_OUT" "$TRAJ_OUT"
+          # No python in this container (e.g. --no-exec sandbox): leave traj.ndjson for the host to convert.
+          :
         fi
 
         if (( cmd_status != 0 )); then
@@ -386,11 +503,16 @@ PY
           fi
         fi
 
-        rm -f "$RAW_TRAJ_OUT"
+        if [[ -s "$TRAJ_OUT" ]]; then
+          rm -f "$RAW_TRAJ_OUT"
+        fi
       ' || true
 
     mkdir -p "$host_instance_out"
     if docker exec "$container_name" bash -lc "test -d '$container_repo_out/$instance_id'"; then
+      # Files written by the container are root-owned; hand them to the host user (matters for the
+      # bind-mounted output dir in --no-exec mode, harmless otherwise).
+      docker exec "$container_name" bash -lc "chown -R $(id -u):$(id -g) '$container_repo_out/$instance_id'" >/dev/null 2>&1 || true
       docker cp "$container_name:$container_repo_out/$instance_id/." "$host_instance_out/" || true
       echo "[$repo][$((i + 1))/$LIMIT] persisted -> $host_instance_out"
 
