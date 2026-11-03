@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -132,15 +133,27 @@ def merge_adapter(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info("Loading base model from %s in %s on %s ...", base_model, dtype, device)
 
-    # Force num_kv_shared_layers=0 so all 42 K/V projections are materialized;
-    # see finetune/model.py:_override_kv_sharing for the full rationale.
+    # Preserve Gemma4's original KV-sharing by default. The working base vLLM
+    # eval uses num_kv_shared_layers=18, and vLLM's Gemma4 implementation
+    # explicitly branches on that field. Changing it to 0 changes the served
+    # architecture and can collapse generation. Keep an env-var escape hatch for
+    # controlled experiments only.
     cfg = AutoConfig.from_pretrained(base_model, trust_remote_code=True)
     text_cfg = cfg.text_config if hasattr(cfg, "text_config") else cfg
-    if getattr(text_cfg, "num_kv_shared_layers", 0):
+    if os.environ.get("REPOBEHAVE_FORCE_GEMMA4_NO_KV_SHARING", "").strip() == "1" and getattr(
+        text_cfg, "num_kv_shared_layers", 0
+    ):
         logger.info(
-            "Overriding num_kv_shared_layers: %d -> 0", text_cfg.num_kv_shared_layers
+            "Overriding num_kv_shared_layers: %d -> 0 "
+            "(REPOBEHAVE_FORCE_GEMMA4_NO_KV_SHARING=1)",
+            text_cfg.num_kv_shared_layers,
         )
         text_cfg.num_kv_shared_layers = 0
+    else:
+        logger.info(
+            "Preserving num_kv_shared_layers=%s from base config",
+            getattr(text_cfg, "num_kv_shared_layers", None),
+        )
 
     base = AutoModelForCausalLM.from_pretrained(
         base_model,
